@@ -9,13 +9,8 @@ from queue import Queue
 from threading import Thread, Event
 import configparser
 from PIL import Image, ImageTk
-# config_path = os.path.join(os.getcwd(), 'config.cfg')
-# if not os.path.exists(config_path):
-#     raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-# config = configparser.ConfigParser()
-# config.read('config.cfg')
-openai.api_key = "sk-svcacct-iX"
+openai.api_key = "sk-svcacct-"
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -72,9 +67,7 @@ class LogHandler:
         chat_message = re.search(r'ChatMessage: (.*)', line)
         if chat_message:
             clean_text = re.sub(r'<.*?>', '', chat_message.group(1))
-            parts = clean_text.split(':', 1)
-            if len(parts) > 1:
-                return clean_text
+            return clean_text
         return ""
 
     def translate_lines(self, lines):
@@ -82,7 +75,7 @@ class LogHandler:
         show_original = self.show_original.get()
         for line in lines:
             print(f"Processing line for translation: {line}")
-            match = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (.*?) (.*)$', line)
+            match = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (.*?@.*?)[: ] (.*)$', line)
             if match:
                 timestamp_user = match.group(1) + "(" + match.group(2) + ") " + match.group(3)
                 message = match.group(4).strip()
@@ -105,7 +98,7 @@ class LogHandler:
     def translate_with_chatgpt(self, text):
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-4o",
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": f"You are a translator. Translate the following text to {self.target_language} without any additional explanations."},
                     {"role": "user", "content": text}
@@ -178,7 +171,7 @@ class App:
 
         self.language_var = tk.StringVar(self.root)
         self.language_var.set("English")  # Default language is English
-        self.language_menu = tk.OptionMenu(frame2, self.language_var, "English", "German", "Polish")
+        self.language_menu = tk.OptionMenu(frame2, self.language_var, "English", "German", "Polish", "French", "Spanish", "Italian", "Dutch", "Portuguese", "Greek", "Swedish", "Danish", "Finnish", "Norwegian", "Czech", "Slovak", "Hungarian", "Romanian", "Bulgarian", "Croatian", "Serbian", "Slovenian", "Estonian", "Latvian", "Lithuanian", "Maltese", "Russian")
         self.language_menu.pack(side=tk.LEFT, padx=5)
 
         self.show_original = tk.BooleanVar()
