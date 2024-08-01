@@ -3,14 +3,17 @@ import sys
 import re
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from tkinter import scrolledtext
 import openai
+import deepl
+import requests
 from queue import Queue
 from threading import Thread, Event
-import configparser
 from PIL import Image, ImageTk
+from googletrans import Translator
 
 openai.api_key = "sk-svcacct-"
+deepl_api_key = ""
+current_version = "0.1.0"
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -18,14 +21,11 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def load_ignore_list(filepath):
-    ignore_list = set()
     with open(filepath, 'r', encoding='utf-8') as file:
-        for line in file:
-            ignore_list.add(line.strip())
-    return ignore_list
+        return {line.strip() for line in file}
 
 class LogHandler:
-    def __init__(self, file_path, text_widget, target_language, queue, stop_event, show_original, ignore_list):
+    def __init__(self, file_path, text_widget, target_language, queue, stop_event, show_original, ignore_list, service_var):
         self.file_path = file_path
         self.file = open(file_path, 'r', encoding='utf-8')
         self.text_widget = text_widget
@@ -35,6 +35,9 @@ class LogHandler:
         self.last_position = self.file.tell()
         self.show_original = show_original
         self.ignore_list = ignore_list
+        self.service_var = service_var
+        self.translator = Translator()
+        self.deepl_translator = deepl.Translator(deepl_api_key)
 
     def check_new_lines(self):
         if self.stop_event.is_set():
@@ -42,58 +45,52 @@ class LogHandler:
         
         self.file.seek(self.last_position)
         lines = []
-        while True:
-            line = self.file.readline()
-            if not line:
-                break
+        while (line := self.file.readline()):
             if "ChatMessage:" in line and self.contains_time(line):
                 clean_line = self.clean_chat_message(line)
                 if clean_line:
-                    print(f"Detected new chat message: {clean_line}")
                     lines.append(clean_line)
 
         if lines:
             self.last_position = self.file.tell()
-            print(f"Batch of chat messages to be translated: {lines}")
             self.queue.put(lines)
 
         if not self.stop_event.is_set():
             self.text_widget.after(5000, self.check_new_lines)
 
-    def contains_time(self, line):
+    @staticmethod
+    def contains_time(line):
         return re.search(r'\(\d{2}:\d{2}:\d{2}\)', line) is not None
 
-    def clean_chat_message(self, line):
+    @staticmethod
+    def clean_chat_message(line):
         chat_message = re.search(r'ChatMessage: (.*)', line)
         if chat_message:
-            clean_text = re.sub(r'<.*?>', '', chat_message.group(1))
-            return clean_text
+            return re.sub(r'<.*?>', '', chat_message.group(1))
         return ""
 
     def translate_lines(self, lines):
         translated_lines = []
-        show_original = self.show_original.get()
         for line in lines:
-            print(f"Processing line for translation: {line}")
-            match = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (.*?@.*?)[: ] (.*)$', line)
+            match = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (.*?@[^: ]+)(: | )(.*)$', line)
             if match:
-                timestamp_user = match.group(1) + "(" + match.group(2) + ") " + match.group(3)
-                message = match.group(4).strip()
+                timestamp_user, message = match.group(1) + "(" + match.group(2) + ") " + match.group(3), match.group(5).strip()
                 if message in self.ignore_list:
-                    print(f"Ignored message: {message}")
                     continue
-                try:
-                    print(f"Translating message: {message}")
-                    translation = self.translate_with_chatgpt(message)
-                    print(f"Received translation: {translation}")
-                    if show_original:
-                        translated_lines.append((f"Original: {timestamp_user}: {message}", "original"))
-                    translated_lines.append((f"Translated: {timestamp_user}: {translation}", "translated"))
-                except Exception as e:
-                    print(f"Error: {e}")
-            else:
-                print(f"Regex did not match for line: {line}")
+                translation_service = self.service_var.get()
+                translation = self.translate_message(message, translation_service)
+                if self.show_original.get():
+                    translated_lines.append((f"Original: {timestamp_user}: {message}", "original"))
+                translated_lines.append((f"Translated: {timestamp_user}: {translation}", "translated"))
         return translated_lines
+
+    def translate_message(self, text, translation_service):
+        if translation_service == "ChatGPT":
+            return self.translate_with_chatgpt(text)
+        elif translation_service == "Google Translate":
+            return self.translate_with_google(text)
+        elif translation_service == "Deepl":
+            return self.translate_with_deepl(text)
 
     def translate_with_chatgpt(self, text):
         try:
@@ -106,109 +103,130 @@ class LogHandler:
             )
             return response.choices[0].message['content'].strip()
         except Exception as e:
-            print(f"Error while translating with ChatGPT: {e}")
-            return text
+            return str(e)
+
+    def translate_with_google(self, text):
+        try:
+            translation = self.translator.translate(text, dest=self.target_language)
+            return translation.text
+        except Exception as e:
+            return str(e)
+
+    def translate_with_deepl(self, text):
+        target_lang_code = self.get_deepl_language_code(self.target_language)
+        if not target_lang_code:
+            return f"Target language '{self.target_language}' not supported by Deepl"
+        try:
+            result = self.deepl_translator.translate_text(text, target_lang=target_lang_code)
+            return result.text
+        except Exception as e:
+            return str(e)
+
+    @staticmethod
+    def get_deepl_language_code(language):
+        language_codes = {
+            "Bulgarian": "BG",
+            "Czech": "CS",
+            "Danish": "DA",
+            "German": "DE",
+            "Greek": "EL",
+            "English": "EN-GB",  # Default to British English
+            "American English": "EN-US",
+            "Spanish": "ES",
+            "Estonian": "ET",
+            "Finnish": "FI",
+            "French": "FR",
+            "Hungarian": "HU",
+            "Italian": "IT",
+            "Japanese": "JA",
+            "Lithuanian": "LT",
+            "Latvian": "LV",
+            "Dutch": "NL",
+            "Polish": "PL",
+            "Portuguese": "PT-PT",  # Default to European Portuguese
+            "Brazilian Portuguese": "PT-BR",
+            "Romanian": "RO",
+            "Russian": "RU",
+            "Slovak": "SK",
+            "Slovenian": "SL",
+            "Swedish": "SV",
+            "Chinese": "ZH"
+        }
+        return language_codes.get(language, None)
 
 class App:
     def __init__(self, root):
         self.root = root
         self.root.title("Train Driver 2 Translation Helper")
-        # Set the icon for the window
-        icon_path = resource_path("Favicon.ico")  # Replace with your icon path
+        icon_path = resource_path(os.path.join('res', 'Favicon.ico'))
         if os.path.exists(icon_path):
             self.root.iconbitmap(icon_path)
-        else:
-            print(f"Icon file not found: {icon_path}")
         self.log_file_path = ""
-        self.ignore_list = load_ignore_list(resource_path('ignore_list.csv'))
+        self.ignore_list = load_ignore_list(resource_path(os.path.join('res', 'ignore_list.csv')))
+
         self.target_language = "en"
         self.handler = None
         self.queue = Queue()
         self.stop_event = Event()
 
         self.create_widgets()
+        self.check_for_updates()
 
-        self.thread = Thread(target=self.process_queue)
-        self.thread.daemon = True
-        self.thread.start()
+        Thread(target=self.process_queue, daemon=True).start()
 
     def create_widgets(self):
-        # Main frame
         main_frame = tk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # Top frame for image
         top_frame = tk.Frame(main_frame)
         top_frame.pack(side=tk.TOP, fill=tk.X)
-
-        # Image
-        img_path = "image.png"  # Replace with your image path
-        img = Image.open(resource_path("image.png"))
-        img = img.resize((80, 40), Image.LANCZOS)
+        img = Image.open(resource_path(os.path.join('res', 'image.png'))).resize((80, 40), Image.LANCZOS)
         self.img_tk = ImageTk.PhotoImage(img)
-        img_label = tk.Label(top_frame, image=self.img_tk)
-        img_label.pack(side=tk.RIGHT)
+        tk.Label(top_frame, image=self.img_tk).pack(side=tk.RIGHT)
 
-        # Log Directory Path Frame
         frame1 = tk.Frame(top_frame)
         frame1.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        self.file_label = tk.Label(frame1, text="Log Directory Path:")
-        self.file_label.pack(side=tk.LEFT)
-
+        tk.Label(frame1, text="Log Directory Path:").pack(side=tk.LEFT)
         self.file_entry = tk.Entry(frame1, width=50)
         self.file_entry.pack(side=tk.LEFT, padx=5)
+        tk.Button(frame1, text="Browse", command=self.browse_directory).pack(side=tk.LEFT)
 
-        self.browse_button = tk.Button(frame1, text="Browse", command=self.browse_directory)
-        self.browse_button.pack(side=tk.LEFT)
-
-        # Target Language Frame
         frame2 = tk.Frame(main_frame)
         frame2.pack(pady=5, fill=tk.X)
 
-        self.language_label = tk.Label(frame2, text="Target Language:")
-        self.language_label.pack(side=tk.LEFT)
-
-        self.language_var = tk.StringVar(self.root)
-        self.language_var.set("English")  # Default language is English
-        self.language_menu = tk.OptionMenu(frame2, self.language_var, "English", "German", "Polish", "French", "Spanish", "Italian", "Dutch", "Portuguese", "Greek", "Swedish", "Danish", "Finnish", "Norwegian", "Czech", "Slovak", "Hungarian", "Romanian", "Bulgarian", "Croatian", "Serbian", "Slovenian", "Estonian", "Latvian", "Lithuanian", "Maltese", "Russian")
-        self.language_menu.pack(side=tk.LEFT, padx=5)
+        tk.Label(frame2, text="Target Language:").pack(side=tk.LEFT)
+        self.language_var = tk.StringVar(self.root, "English")
+        tk.OptionMenu(frame2, self.language_var, "English", "American English", "German", "Polish", "French", "Spanish", "Italian", "Dutch", "Portuguese", "Brazilian Portuguese", "Greek", "Swedish", "Danish", "Finnish", "Norwegian", "Czech", "Slovak", "Hungarian", "Romanian", "Bulgarian", "Croatian", "Serbian", "Slovenian", "Estonian", "Latvian", "Lithuanian", "Maltese", "Russian").pack(side=tk.LEFT, padx=5)
 
         self.show_original = tk.BooleanVar()
-        self.show_original_check = tk.Checkbutton(frame2, text="Show Original", variable=self.show_original)
-        self.show_original_check.pack(side=tk.LEFT, padx=5)
+        tk.Checkbutton(frame2, text="Show Original", variable=self.show_original).pack(side=tk.LEFT, padx=5)
 
-        # Buttons Frame
+        tk.Label(frame2, text="Translation Service:").pack(side=tk.LEFT, padx=5)
+        self.service_var = tk.StringVar(self.root, "ChatGPT")
+        tk.OptionMenu(frame2, self.service_var, "ChatGPT", "Google Translate", "Deepl").pack(side=tk.LEFT, padx=5)
+
         frame3 = tk.Frame(main_frame)
         frame3.pack(pady=5, fill=tk.X)
+        tk.Button(frame3, text="Start Translation", command=self.start_translation).pack(side=tk.LEFT, padx=5)
+        tk.Button(frame3, text="Restart Translation", command=self.restart_translation).pack(side=tk.LEFT, padx=5)
+        tk.Button(frame3, text="Export Chat", command=self.export_chat).pack(side=tk.LEFT, padx=5)
 
-        self.start_button = tk.Button(frame3, text="Start Translation", command=self.start_translation)
-        self.start_button.pack(side=tk.LEFT, padx=5)
-
-        self.restart_button = tk.Button(frame3, text="Restart Translation", command=self.restart_translation)
-        self.restart_button.pack(side=tk.LEFT, padx=5)
-
-        # Text Area for Chat Messages
         self.text_area = tk.Text(main_frame, wrap=tk.WORD, height=20, width=80)
         self.text_area.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
         self.text_area.tag_config('translated', foreground='green', font=("Helvetica", 10, "bold"))
 
     def browse_directory(self):
-        directory_path = filedialog.askdirectory(initialdir=os.path.expanduser("~/Documents/TTSK/TrainDriver2/Logs"),
-                                                 title="Select Log Directory")
+        directory_path = filedialog.askdirectory(initialdir=os.path.expanduser("~/Documents/TTSK/TrainDriver2/Logs"), title="Select Log Directory")
         if directory_path:
             self.log_file_path = self.find_latest_log_file(directory_path)
             self.file_entry.delete(0, tk.END)
             self.file_entry.insert(0, directory_path)
-            print(f"Selected directory: {directory_path}")
-            print(f"Latest log file: {self.log_file_path}")
 
-    def find_latest_log_file(self, directory_path):
+    @staticmethod
+    def find_latest_log_file(directory_path):
         log_files = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
-        if not log_files:
-            return None
-        latest_file = max(log_files, key=os.path.getctime)
-        return latest_file
+        return max(log_files, key=os.path.getctime) if log_files else None
 
     def start_translation(self):
         if not self.log_file_path:
@@ -224,34 +242,48 @@ class App:
         self.text_area.insert(tk.END, "Translation started\n", "translated")
 
         self.stop_event = Event()
-        self.handler = LogHandler(self.log_file_path, self.text_area, self.target_language, self.queue, self.stop_event, self.show_original, self.ignore_list)
-        
-        # Nur die neueste letzte Nachricht übersetzen
+        self.handler = LogHandler(self.log_file_path, self.text_area, self.target_language, self.queue, self.stop_event, self.show_original, self.ignore_list, self.service_var)
+
         self.handler.file.seek(0, os.SEEK_END)
         latest_message = None
-        while True:
-            line = self.handler.file.readline()
-            if not line:
-                break
+        while (line := self.handler.file.readline()):
             if "ChatMessage:" in line and self.handler.contains_time(line):
                 clean_line = self.handler.clean_chat_message(line)
                 if clean_line:
                     latest_message = clean_line
 
         if latest_message:
-            print(f"Latest chat message to be translated: {latest_message}")
-            self.queue.put([latest_message])  # Nur die letzte Nachricht in die Warteschlange legen
+            self.queue.put([latest_message])
 
         self.handler.last_position = self.handler.file.tell()
         self.handler.check_new_lines()
-
-        print(f"Started translation for file: {self.log_file_path}")
 
     def restart_translation(self):
         self.stop_event.set()
         if self.handler:
             self.handler.file.close()
         self.start_translation()
+
+    def export_chat(self):
+        desktop_path = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop')
+        file_path = filedialog.asksaveasfilename(initialdir=desktop_path, defaultextension=".txt", filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+        if file_path:
+            with open(file_path, 'w', encoding='utf-8') as file:
+                file.write(self.text_area.get(1.0, tk.END))
+            messagebox.showinfo("Export Chat", "Chat exported successfully!")
+
+    def check_for_updates(self):
+        try:
+            response = requests.get("https://api.github.com/repos/bravuralion/TD2-Chat-Translator/releases/latest")
+            response.raise_for_status()
+            latest_release = response.json()
+            latest_version = latest_release['tag_name']
+            if latest_version > current_version:
+                if messagebox.askyesno("Update Available", f"A new version {latest_version} is available. Do you want to download it?"):
+                    download_url = latest_release['assets'][0]['browser_download_url']
+                    os.system(f"start {download_url}")
+        except Exception as e:
+            print(f"Error checking for updates: {e}")
 
     def on_closing(self):
         self.stop_event.set()
@@ -262,15 +294,10 @@ class App:
     def process_queue(self):
         while True:
             lines = self.queue.get()
-            print(f"Processing batch of lines: {lines}")
             if self.handler:
                 translated_lines = self.handler.translate_lines(lines)
                 for line, line_type in translated_lines:
-                    print(f"Inserting line into text area: {line}")
-                    if line_type == "translated":
-                        self.text_area.insert(tk.END, f"{line}\n", "translated")
-                    else:
-                        self.text_area.insert(tk.END, f"{line}\n")
+                    self.text_area.insert(tk.END, f"{line}\n", "translated" if line_type == "translated" else None)
                     self.text_area.see(tk.END)
             self.queue.task_done()
 

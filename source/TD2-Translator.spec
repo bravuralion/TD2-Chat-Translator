@@ -5,7 +5,7 @@ a = Analysis(
     ['TD2-Translator.py'],
     pathex=[],
     binaries=[],
-    datas=[('image.png', '.'), ('ignore_list.csv', '.'), ('Favicon.ico', '.')],
+    datas=[('res/*.png', 'res/'), ('res/*.ico', 'res/'), ('res/*.csv', 'res/')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -34,5 +34,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['Favicon.ico'],
+    icon=['res\\Favicon.ico'],
 )
