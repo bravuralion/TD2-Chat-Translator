@@ -6,19 +6,22 @@ from tkinter import filedialog, messagebox
 import openai
 import deepl
 import requests
+import configparser
 from queue import Queue
 from threading import Thread, Event
 from PIL import Image, ImageTk
 from googletrans import Translator
 
-openai.api_key = "sk-svcacct-"
-deepl_api_key = ""
-current_version = "0.1.0"
-
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
+
+config = configparser.ConfigParser()
+config.read(resource_path('config.cfg'))
+openai.api_key = config['DEFAULT']['OPENAI_API_KEY']
+deepl_api_key = config['DEFAULT']['deepl_api_key']
+current_version = "0.1.1"
 
 def load_ignore_list(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:

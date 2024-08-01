@@ -5,7 +5,7 @@ a = Analysis(
     ['TD2-Translator.py'],
     pathex=[],
     binaries=[],
-    datas=[('res/*.png', 'res/'), ('res/*.ico', 'res/'), ('res/*.csv', 'res/')],
+    datas=[('res/*.png', 'res/'), ('res/*.ico', 'res/'), ('res/*.csv', 'res/'), ('config.cfg', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
