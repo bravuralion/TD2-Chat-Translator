@@ -11,9 +11,10 @@ from queue import Queue
 from threading import Thread, Event
 from PIL import Image, ImageTk
 from googletrans import Translator
+import csv
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """ Get absolute path to resource, works for dev und for PyInstaller """
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
@@ -21,14 +22,27 @@ config = configparser.ConfigParser()
 config.read(resource_path('config.cfg'))
 openai.api_key = config['DEFAULT']['OPENAI_API_KEY']
 deepl_api_key = config['DEFAULT']['deepl_api_key']
-current_version = "0.1.1"
+current_version = "0.1.2"
 
 def load_ignore_list(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
         return {line.strip() for line in file}
 
+def load_fixed_translations(filepath):
+    fixed_translations = {}
+    with open(filepath, 'r', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            text = row['text']
+            language = row['language']
+            translation = row['translation']
+            if text not in fixed_translations:
+                fixed_translations[text] = {}
+            fixed_translations[text][language] = translation
+    return fixed_translations
+
 class LogHandler:
-    def __init__(self, file_path, text_widget, target_language, queue, stop_event, show_original, ignore_list, service_var):
+    def __init__(self, file_path, text_widget, target_language, queue, stop_event, show_original, ignore_list, service_var, fixed_translations):
         self.file_path = file_path
         self.file = open(file_path, 'r', encoding='utf-8')
         self.text_widget = text_widget
@@ -39,6 +53,7 @@ class LogHandler:
         self.show_original = show_original
         self.ignore_list = ignore_list
         self.service_var = service_var
+        self.fixed_translations = fixed_translations
         self.translator = Translator()
         self.deepl_translator = deepl.Translator(deepl_api_key)
 
@@ -88,6 +103,11 @@ class LogHandler:
         return translated_lines
 
     def translate_message(self, text, translation_service):
+
+        fixed_translation = self.get_fixed_translation(text)
+        if fixed_translation:
+            return fixed_translation
+
         if translation_service == "ChatGPT":
             return self.translate_with_chatgpt(text)
         elif translation_service == "Google Translate":
@@ -95,12 +115,19 @@ class LogHandler:
         elif translation_service == "Deepl":
             return self.translate_with_deepl(text)
 
+    def get_fixed_translation(self, text):
+        print(f"Debug: {self.target_language}")
+        for fixed_text, translations in self.fixed_translations.items():
+            if fixed_text.lower() == text.lower() and self.target_language in translations:
+                return translations[self.target_language]
+        return None
+
     def translate_with_chatgpt(self, text):
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": f"You are a translator. Translate the following text to {self.target_language} without any additional explanations."},
+                    {"role": "system", "content": f"You are a translator. Translate the following text to {self.target_language} without any additional explanations.The Source can be in multiple languages. if you cannot translate a text, try to translate word by word."},
                     {"role": "user", "content": text}
                 ]
             )
@@ -166,6 +193,7 @@ class App:
             self.root.iconbitmap(icon_path)
         self.log_file_path = ""
         self.ignore_list = load_ignore_list(resource_path(os.path.join('res', 'ignore_list.csv')))
+        self.fixed_translations = load_fixed_translations(resource_path(os.path.join('res', 'fixed_translations.csv')))
 
         self.target_language = "en"
         self.handler = None
@@ -190,7 +218,7 @@ class App:
         frame1 = tk.Frame(top_frame)
         frame1.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        tk.Label(frame1, text="Log Directory Path:").pack(side=tk.LEFT)
+        tk.Label(frame1,   text="TD2 Logs Path:").pack(side=tk.LEFT)
         self.file_entry = tk.Entry(frame1, width=50)
         self.file_entry.pack(side=tk.LEFT, padx=5)
         tk.Button(frame1, text="Browse", command=self.browse_directory).pack(side=tk.LEFT)
@@ -245,7 +273,7 @@ class App:
         self.text_area.insert(tk.END, "Translation started\n", "translated")
 
         self.stop_event = Event()
-        self.handler = LogHandler(self.log_file_path, self.text_area, self.target_language, self.queue, self.stop_event, self.show_original, self.ignore_list, self.service_var)
+        self.handler = LogHandler(self.log_file_path, self.text_area, self.target_language, self.queue, self.stop_event, self.show_original, self.ignore_list, self.service_var, self.fixed_translations)
 
         self.handler.file.seek(0, os.SEEK_END)
         latest_message = None
