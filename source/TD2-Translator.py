@@ -22,7 +22,7 @@ config = configparser.ConfigParser()
 config.read(resource_path('config.cfg'))
 openai.api_key = config['DEFAULT']['OPENAI_API_KEY']
 deepl_api_key = config['DEFAULT']['deepl_api_key']
-current_version = "0.1.2"
+current_version = "0.1.3"
 
 def load_ignore_list(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -90,17 +90,29 @@ class LogHandler:
     def translate_lines(self, lines):
         translated_lines = []
         for line in lines:
-            match = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (.*?@[^: ]+)(: | )(.*)$', line)
-            if match:
-                timestamp_user, message = match.group(1) + "(" + match.group(2) + ") " + match.group(3), match.group(5).strip()
-                if message in self.ignore_list:
-                    continue
-                translation_service = self.service_var.get()
-                translation = self.translate_message(message, translation_service)
-                if self.show_original.get():
-                    translated_lines.append((f"Original: {timestamp_user}: {message}", "original"))
-                translated_lines.append((f"Translated: {timestamp_user}: {translation}", "translated"))
+            # Match for player messages
+            match_player = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (.*?@[^: ]+)(: | )(.*)$', line)
+            # Match for SWDR messages
+            match_swdr = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) \[(.*? \((.*?)\))\] (.*)$', line)
+            if match_player:
+                timestamp_user, message = match_player.group(1) + "(" + match_player.group(2) + ") " + match_player.group(3), match_player.group(5).strip()
+                tag = "translated"
+            elif match_swdr:
+                timestamp_user, message = match_swdr.group(1) + "(" + match_swdr.group(2) + ") [" + match_swdr.group(3) + "]", match_swdr.group(5).strip()
+                tag = "swdr"
+            else:
+                continue
+
+            if message in self.ignore_list:
+                continue
+
+            translation_service = self.service_var.get()
+            translation = self.translate_message(message, translation_service)
+            if self.show_original.get():
+                translated_lines.append((f"Original: {timestamp_user}: {message}", "original"))
+            translated_lines.append((f"Translated: {timestamp_user}: {translation}", tag))
         return translated_lines
+
 
     def translate_message(self, text, translation_service):
 
@@ -218,7 +230,7 @@ class App:
         frame1 = tk.Frame(top_frame)
         frame1.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        tk.Label(frame1,   text="TD2 Logs Path:").pack(side=tk.LEFT)
+        tk.Label(frame1, text="TD2 Logs Path:").pack(side=tk.LEFT)
         self.file_entry = tk.Entry(frame1, width=50)
         self.file_entry.pack(side=tk.LEFT, padx=5)
         tk.Button(frame1, text="Browse", command=self.browse_directory).pack(side=tk.LEFT)
@@ -246,6 +258,8 @@ class App:
         self.text_area = tk.Text(main_frame, wrap=tk.WORD, height=20, width=80)
         self.text_area.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
         self.text_area.tag_config('translated', foreground='green', font=("Helvetica", 10, "bold"))
+        self.text_area.tag_config('swdr', foreground='red', font=("Helvetica", 10, "bold"))
+
 
     def browse_directory(self):
         directory_path = filedialog.askdirectory(initialdir=os.path.expanduser("~/Documents/TTSK/TrainDriver2/Logs"), title="Select Log Directory")
@@ -328,9 +342,11 @@ class App:
             if self.handler:
                 translated_lines = self.handler.translate_lines(lines)
                 for line, line_type in translated_lines:
-                    self.text_area.insert(tk.END, f"{line}\n", "translated" if line_type == "translated" else None)
+                    tag = "translated" if line_type == "translated" else "swdr" if line_type == "swdr" else None
+                    self.text_area.insert(tk.END, f"{line}\n", tag)
                     self.text_area.see(tk.END)
             self.queue.task_done()
+
 
 if __name__ == "__main__":
     root = tk.Tk()
