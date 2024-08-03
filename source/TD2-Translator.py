@@ -22,7 +22,7 @@ config = configparser.ConfigParser()
 config.read(resource_path('config.cfg'))
 openai.api_key = config['DEFAULT']['OPENAI_API_KEY']
 deepl_api_key = config['DEFAULT']['deepl_api_key']
-current_version = "0.1.3"
+current_version = "0.1.4"
 
 def load_ignore_list(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -137,7 +137,7 @@ class LogHandler:
     def translate_with_chatgpt(self, text):
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-4",
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": f"You are a translator. Translate the following text to {self.target_language} without any additional explanations.The Source can be in multiple languages. if you cannot translate a text, try to translate word by word."},
                     {"role": "user", "content": text}
