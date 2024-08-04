@@ -22,7 +22,7 @@ config = configparser.ConfigParser()
 config.read(resource_path('config.cfg'))
 openai.api_key = config['DEFAULT']['OPENAI_API_KEY']
 deepl_api_key = config['DEFAULT']['deepl_api_key']
-current_version = "0.1.4"
+current_version = "0.1.5"
 
 def load_ignore_list(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -116,9 +116,9 @@ class LogHandler:
 
     def translate_message(self, text, translation_service):
 
-        fixed_translation = self.get_fixed_translation(text)
-        if fixed_translation:
-            return fixed_translation
+        #fixed_translation = self.get_fixed_translation(text)
+        #if fixed_translation:
+        #    return fixed_translation
 
         if translation_service == "ChatGPT":
             return self.translate_with_chatgpt(text)
@@ -136,10 +136,74 @@ class LogHandler:
 
     def translate_with_chatgpt(self, text):
         try:
+            # Dynamisch geladene feste Übersetzungen
+            fixed_translations = """
+            przyjął;polish;german;verstanden
+            witam;polish;german;Hallo
+            przelocik jest;polish;german;Durchfahrt ist
+            podłączony;polish;german;gekoppelt
+            podlaczony;polish;german;gekoppelt
+            na wagony;polish;german;auf Wagengruppe
+            nwm;polish;german;Ich weiss es nicht
+            nie wiem;polish;german;Ich weiss es nicht
+            podłacz;polish;german;kuppeln
+            podlacz;polish;german;kuppeln
+            zpięte;polish;german;gekuppelt
+            zpiete;polish;german;gekuppelt
+            tak tak;polish;german;ja,ja
+            tak;polish;german;ja
+            git;polish;german;Ist ok
+            Lewym;polish;german;auf Gegengleis
+            Bry;polish;german;Hallo
+            wznowic;polish;german;reaktivieren
+            odpinamy;polish;german;abkoppeln
+            przelot;polish;german;Durchfahrt
+            SUP;polish;german;SUP
+            odhamowanie;polish;german;Lösen der Bremsen
+            pewnie;polish;german;sicher
+            dobry;polish;german;Hallo
+            obojętnie;polish;german;egal
+            Spychamy;polish;german;schieben
+            wyjazd;polish;german;Ausfahrt
+            dasz mi rj;polish;german;Gibst du mir einen Fahrplan?
+            ruchu;polish;german;Verkehr
+            lużik;polish;german;Einzellok
+            na bok;polish;german;auf die Seite
+            witam;polish;english;Hello
+            tak;polish;english;Yes
+            wjazd podany;polish;english;Entry given
+            szlak zajęty;polish;english;Track is occupied
+            Przyjąłem;polish;english;Understood
+            Przyjąłem;polish;german;Verstanden
+            Przyjąłem,de,Verstanden
+            Przyjąłem,en,Understood
+            witam,en,hello
+            witam,de,Hallo
+            wjazd podany,de,Einfahrt gegeben
+            wjazd podany,en,Entry given
+            szlak zajęty,de,Strecke ist belegt
+            szlak zajęty,en,Track is occupied
+            Tak,de,Ja
+            Tak,en,yes
+            """
+
+            # Dynamisches Einfügen der target_language und fixed_translations
+            system_message = f"""
+            You are a translator. Translate the following text to {self.target_language} without any additional explanations. 
+            The source can be in multiple languages. If you cannot translate a text, try to translate word by word.
+            
+            Use the following fixed translations when available. If no fixed translation is available, translate the text as usual. 
+
+            Fixed translations:
+            {fixed_translations}
+
+            Please use these translations when appropriate.
+            """
+
             response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
+                model="gpt-4",
                 messages=[
-                    {"role": "system", "content": f"You are a translator. Translate the following text to {self.target_language} without any additional explanations.The Source can be in multiple languages. if you cannot translate a text, try to translate word by word."},
+                    {"role": "system", "content": system_message},
                     {"role": "user", "content": text}
                 ]
             )
