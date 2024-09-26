@@ -146,7 +146,7 @@ class LogHandler:
             client.beta.threads.messages.create(
                 thread_id=thread.id,
                 role="user",
-                content=f"Translate the following Sentence to {self.target_language}: {text}"
+                content=f"Translate the following Sentence to {self.target_language}, Only provide the translation without any explanations or additional text. If you cannot translate it, return the original text as it is: {text}."
             )
 
             run = client.beta.threads.runs.create_and_poll(
