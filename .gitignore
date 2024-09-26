@@ -3,3 +3,4 @@ source/config.cfg
 /source/dist
 source/dist/TD2-Translator.exe
 source/dist/TD2-Translator.zip
+/source/build
