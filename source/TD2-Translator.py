@@ -10,6 +10,8 @@ import configparser
 from queue import Queue
 from threading import Thread, Event
 from PIL import Image, ImageTk
+import httpcore
+setattr(httpcore, 'SyncHTTPTransport', 'AsyncHTTPProxy')
 from googletrans import Translator
 import csv
 
@@ -22,7 +24,7 @@ config = configparser.ConfigParser()
 config.read(resource_path('config.cfg'))
 openai.api_key = config['DEFAULT']['OPENAI_API_KEY']
 deepl_api_key = config['DEFAULT']['deepl_api_key']
-current_version = "0.1.5"
+current_version = "0.1.7"
 
 def load_ignore_list(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -42,9 +44,10 @@ def load_fixed_translations(filepath):
     return fixed_translations
 
 class LogHandler:
-    def __init__(self, file_path, text_widget, target_language, queue, stop_event, show_original, ignore_list, service_var, fixed_translations):
-        self.file_path = file_path
-        self.file = open(file_path, 'r', encoding='utf-8')
+    def __init__(self, directory_path, text_widget, target_language, queue, stop_event, show_original, ignore_list, service_var, fixed_translations):
+        self.directory_path = directory_path
+        self.file_path = self.find_latest_log_file(self.directory_path)  # Start with the latest file
+        self.file = open(self.file_path, 'r', encoding='utf-8')
         self.text_widget = text_widget
         self.target_language = target_language
         self.queue = queue
@@ -57,24 +60,39 @@ class LogHandler:
         self.translator = Translator()
         self.deepl_translator = deepl.Translator(deepl_api_key)
 
-    def check_new_lines(self):
-        if self.stop_event.is_set():
-            return
-        
-        self.file.seek(self.last_position)
-        lines = []
-        while (line := self.file.readline()):
-            if "ChatMessage:" in line and self.contains_time(line):
-                clean_line = self.clean_chat_message(line)
-                if clean_line:
-                    lines.append(clean_line)
+    def find_latest_log_file(self, directory_path):
+        log_files = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
+        return max(log_files, key=os.path.getctime) if log_files else None
 
-        if lines:
+    def check_for_new_log_file(self):
+        """Monitor for new log files and switch to them automatically."""
+        latest_log = self.find_latest_log_file(self.directory_path)
+        if latest_log != self.file_path:
+            self.file_path = latest_log
+            self.file.close()
+            self.file = open(self.file_path, 'r', encoding='utf-8')
             self.last_position = self.file.tell()
-            self.queue.put(lines)
 
-        if not self.stop_event.is_set():
-            self.text_widget.after(5000, self.check_new_lines)
+    def check_new_lines(self):
+            if self.stop_event.is_set():
+                return
+
+            self.check_for_new_log_file()  # Check if there's a new log file to switch to
+
+            self.file.seek(self.last_position)
+            lines = []
+            while (line := self.file.readline()):
+                if "ChatMessage:" in line and self.contains_time(line):
+                    clean_line = self.clean_chat_message(line)
+                    if clean_line:
+                        lines.append(clean_line)
+
+            if lines:
+                self.last_position = self.file.tell()
+                self.queue.put(lines)
+
+            if not self.stop_event.is_set():
+                self.text_widget.after(5000, self.check_new_lines)
 
     @staticmethod
     def contains_time(line):
@@ -113,13 +131,7 @@ class LogHandler:
             translated_lines.append((f"Translated: {timestamp_user}: {translation}", tag))
         return translated_lines
 
-
     def translate_message(self, text, translation_service):
-
-        #fixed_translation = self.get_fixed_translation(text)
-        #if fixed_translation:
-        #    return fixed_translation
-
         if translation_service == "ChatGPT":
             return self.translate_with_chatgpt(text)
         elif translation_service == "Google Translate":
@@ -127,89 +139,46 @@ class LogHandler:
         elif translation_service == "Deepl":
             return self.translate_with_deepl(text)
 
-    def get_fixed_translation(self, text):
-        print(f"Debug: {self.target_language}")
-        for fixed_text, translations in self.fixed_translations.items():
-            if fixed_text.lower() == text.lower() and self.target_language in translations:
-                return translations[self.target_language]
-        return None
-
     def translate_with_chatgpt(self, text):
         try:
-            # Dynamisch geladene feste Übersetzungen
-            fixed_translations = """
-            przyjął;polish;german;verstanden
-            witam;polish;german;Hallo
-            przelocik jest;polish;german;Durchfahrt ist
-            podłączony;polish;german;gekoppelt
-            podlaczony;polish;german;gekoppelt
-            na wagony;polish;german;auf Wagengruppe
-            nwm;polish;german;Ich weiss es nicht
-            nie wiem;polish;german;Ich weiss es nicht
-            podłacz;polish;german;kuppeln
-            podlacz;polish;german;kuppeln
-            zpięte;polish;german;gekuppelt
-            zpiete;polish;german;gekuppelt
-            tak tak;polish;german;ja,ja
-            tak;polish;german;ja
-            git;polish;german;Ist ok
-            Lewym;polish;german;auf Gegengleis
-            Bry;polish;german;Hallo
-            wznowic;polish;german;reaktivieren
-            odpinamy;polish;german;abkoppeln
-            przelot;polish;german;Durchfahrt
-            SUP;polish;german;SUP
-            odhamowanie;polish;german;Lösen der Bremsen
-            pewnie;polish;german;sicher
-            dobry;polish;german;Hallo
-            obojętnie;polish;german;egal
-            Spychamy;polish;german;schieben
-            wyjazd;polish;german;Ausfahrt
-            dasz mi rj;polish;german;Gibst du mir einen Fahrplan?
-            ruchu;polish;german;Verkehr
-            lużik;polish;german;Einzellok
-            na bok;polish;german;auf die Seite
-            witam;polish;english;Hello
-            tak;polish;english;Yes
-            wjazd podany;polish;english;Entry given
-            szlak zajęty;polish;english;Track is occupied
-            Przyjąłem;polish;english;Understood
-            Przyjąłem;polish;german;Verstanden
-            Przyjąłem,de,Verstanden
-            Przyjąłem,en,Understood
-            witam,en,hello
-            witam,de,Hallo
-            wjazd podany,de,Einfahrt gegeben
-            wjazd podany,en,Entry given
-            szlak zajęty,de,Strecke ist belegt
-            szlak zajęty,en,Track is occupied
-            Tak,de,Ja
-            Tak,en,yes
-            """
-
-            # Dynamisches Einfügen der target_language und fixed_translations
-            system_message = f"""
-            You are a translator. Translate the following text to {self.target_language} without any additional explanations. 
-            The source can be in multiple languages. If you cannot translate a text, try to translate word by word.
-            
-            Use the following fixed translations when available. If no fixed translation is available, translate the text as usual. 
-
-            Fixed translations:
-            {fixed_translations}
-
-            Please use these translations when appropriate.
-            """
-
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": text}
-                ]
+            client = openai.OpenAI(api_key=openai.api_key)
+            thread = client.beta.threads.create()
+            client.beta.threads.messages.create(
+                thread_id=thread.id,
+                role="user",
+                content=f"Translate the following Sentence to {self.target_language}: {text}"
             )
-            return response.choices[0].message['content'].strip()
+
+            run = client.beta.threads.runs.create_and_poll(
+                thread_id=thread.id,
+                assistant_id="asst_VQVZRc35HMmcZO7P00VaUeRg",
+                instructions="You are a translator. Translate the text provided to you to the requested languages without any additional explanations. The Source can be in multiple languages. if you cannot translate a text, try to translate word by word. ensure that you use the advanced translation provided. Only reply with the translation and never reply in a different language."
+            )
+
+            if run.status == 'completed':
+                messages = client.beta.threads.messages.list(thread_id=thread.id)
+                # Zugriff auf die Liste der Nachrichten im `messages`-Objekt
+                message_data = messages.data
+                if message_data:
+                    last_message = message_data[0]
+                    if last_message.content:
+                        # Zugriff auf das TextContentBlock-Objekt und den Text daraus extrahieren
+                        text_content_block = last_message.content[0]
+                        return text_content_block.text.value.strip()
+                    else:
+                        return "No content found in the last message"
+                else:
+                    return "No messages found"
+            else:
+                return run.status
         except Exception as e:
             return str(e)
+
+
+
+
+
+
 
     def translate_with_google(self, text):
         try:
@@ -324,7 +293,6 @@ class App:
         self.text_area.tag_config('translated', foreground='green', font=("Helvetica", 10, "bold"))
         self.text_area.tag_config('swdr', foreground='red', font=("Helvetica", 10, "bold"))
 
-
     def browse_directory(self):
         directory_path = filedialog.askdirectory(initialdir=os.path.expanduser("~/Documents/TTSK/TrainDriver2/Logs"), title="Select Log Directory")
         if directory_path:
@@ -351,7 +319,8 @@ class App:
         self.text_area.insert(tk.END, "Translation started\n", "translated")
 
         self.stop_event = Event()
-        self.handler = LogHandler(self.log_file_path, self.text_area, self.target_language, self.queue, self.stop_event, self.show_original, self.ignore_list, self.service_var, self.fixed_translations)
+        self.handler = LogHandler(self.file_entry.get(), self.text_area, self.target_language, self.queue, self.stop_event, self.show_original, self.ignore_list, self.service_var, self.fixed_translations)
+
 
         self.handler.file.seek(0, os.SEEK_END)
         latest_message = None
@@ -410,7 +379,6 @@ class App:
                     self.text_area.insert(tk.END, f"{line}\n", tag)
                     self.text_area.see(tk.END)
             self.queue.task_done()
-
 
 if __name__ == "__main__":
     root = tk.Tk()
