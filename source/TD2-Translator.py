@@ -24,7 +24,7 @@ config = configparser.ConfigParser()
 config.read(resource_path('config.cfg'))
 openai.api_key = config['DEFAULT']['OPENAI_API_KEY']
 deepl_api_key = config['DEFAULT']['deepl_api_key']
-current_version = "0.1.7"
+current_version = "0.1.8"
 
 def load_ignore_list(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -146,7 +146,7 @@ class LogHandler:
             client.beta.threads.messages.create(
                 thread_id=thread.id,
                 role="user",
-                content=f"Translate the following Sentence to {self.target_language}, Only provide the translation without any explanations or additional text. If you cannot translate it, return the original text as it is: {text}."
+                content=f"Translate the following Sentence to {self.target_language}, Only provide the translation without any explanations or additional text. If there are parts that cannot be translated (e.g., names, emojis), leave those unchanged, and translate the rest: {text}."
             )
 
             run = client.beta.threads.runs.create_and_poll(
