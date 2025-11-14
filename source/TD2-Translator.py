@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, thread
 import json
 from PyQt6.QtMultimedia import QSoundEffect
 
-current_version = "0.4.1"
+current_version = "0.4.2"
 
 # --- I18N & Settings (NEU) ---
 APP_SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".td2_app_settings.json")
@@ -603,7 +603,6 @@ class App(QtWidgets.QMainWindow):
         aminus_btn.clicked.connect(lambda: self.change_overlay_font_size(-1))
         frame3.addWidget(aminus_btn)
         self.warning_checkbox = QtWidgets.QCheckBox(self._t("driver_warnings"))
-        self.warning_checkbox.setChecked(True)
         self.warning_checkbox.stateChanged.connect(lambda state: setattr(self, "enable_driver_warning", state == QtCore.Qt.CheckState.Checked))
         frame3.addWidget(self.warning_checkbox)
 
@@ -732,7 +731,6 @@ class App(QtWidgets.QMainWindow):
             QWidget {{ background-color: {bg_color}; color: {fg_color}; }}
             QLineEdit, QTextEdit, QComboBox {{ background-color: {text_area_bg}; color: {text_area_fg}; }}
             QPushButton {{ background-color: {button_bg}; color: {button_fg}; }}
-            QCheckBox {{ background-color: {bg_color}; color: {fg_color}; }}
         """)
 
     def process_lines(self, handler, text_area, lines):
@@ -953,6 +951,7 @@ class App(QtWidgets.QMainWindow):
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
+    app.setStyle("fusion")
     main_win = App()
     main_win.show()
     sys.exit(app.exec())
