@@ -22,7 +22,64 @@ from packaging import version
 from concurrent.futures import ThreadPoolExecutor, thread
 import json
 from PyQt6.QtMultimedia import QSoundEffect
+
 current_version = "0.4.1"
+
+# --- I18N & Settings (NEU) ---
+APP_SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".td2_app_settings.json")
+
+I18N = {
+    "language_names": {"de": "Deutsch", "en": "English", "pl": "Polski"},
+    "select_ui_language_title": {"de": "Sprache wählen", "en": "Choose language", "pl": "Wybierz język"},
+    "select_ui_language_label": {"de": "Interface-Sprache:", "en": "Interface language:", "pl": "Język interfejsu:"},
+
+    "window_title": {
+        "de": "Train Driver 2 Übersetzer {ver}",
+        "en": "Train Driver 2 Translator  {ver}",
+        "pl": "Train Driver 2 – Pomocnik Tłumaczeń {ver}"
+    },
+    "logs_path": {"de": "TD2 Logs Pfad:", "en": "TD2 Logs Path:", "pl": "Ścieżka do logów TD2:"},
+    "browse": {"de": "Durchsuchen", "en": "Browse", "pl": "Przeglądaj"},
+    "target_language": {"de": "Zielsprache:", "en": "Target Language:", "pl": "Język docelowy:"},
+    "service": {"de": "Übersetzungsdienst:", "en": "Translation Service:", "pl": "Usługa tłumaczenia:"},
+    "close_tab": {"de": "Tab schließen", "en": "Close Selected Tab", "pl": "Zamknij wybraną kartę"},
+    "toggle_overlay": {"de": "Overlay umschalten", "en": "Toggle Overlay", "pl": "Przełącz overlay"},
+    "driver_warnings": {"de": "Fahrerwarnungen", "en": "Driver Warnings", "pl": "Ostrzeżenia dla kierowców"},
+    "font_plus": {"de": "A+", "en": "A+", "pl": "A+"},
+    "font_minus": {"de": "A−", "en": "A−", "pl": "A−"},
+    "select_log_dir": {
+        "de": "Log-Verzeichnis auswählen",
+        "en": "Select Log Directory",
+        "pl": "Wybierz katalog logów"
+    },
+    "update_available_title": {"de": "Update verfügbar", "en": "Update Available", "pl": "Dostępna aktualizacja"},
+    "update_available_body": {
+        "de": "Eine neue Version {ver} ist verfügbar. Herunterladen?",
+        "en": "A new version {ver} is available. Download?",
+        "pl": "Nowa wersja {ver} jest dostępna. Pobierzesz?"
+    },
+    "warning_driver_lt_100": {
+        "de": "ACHTUNG: FAHRER {name} hat vermutlich weniger als 100 km gefahren – Vorsicht!",
+        "en": "ATTENTION: DRIVER {name} may drove less than 100 KM, be careful!",
+        "pl": "UWAGA: KIEROWCA {name} przejechał mniej niż 100 KM – ostrożnie!"
+    }
+}
+
+def load_app_settings():
+    try:
+        if os.path.exists(APP_SETTINGS_FILE):
+            with open(APP_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def save_app_settings(data: dict):
+    try:
+        with open(APP_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev und for PyInstaller """
@@ -46,9 +103,8 @@ class TranslationWorker(QtCore.QObject):
         if self.cancelled:
             return
         results = self.handler.translate_lines(self.lines)
-        if not self.cancelled:  
+        if not self.cancelled:
             self.finished.emit(results)
-
 
 def load_ignore_list(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -59,12 +115,12 @@ def load_fixed_translations(filepath):
     with open(filepath, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
         for row in reader:
-            text = row['text'].strip().lower()  
+            text0 = row['text'].strip().lower()
             language = row['language'].strip()
             translation = row['translation'].strip()
-            if text not in fixed_translations:
-                fixed_translations[text] = {}
-            fixed_translations[text][language] = translation
+            if text0 not in fixed_translations:
+                fixed_translations[text0] = {}
+            fixed_translations[text0][language] = translation
     return fixed_translations
 
 def load_scenery_names(filepath):
@@ -75,7 +131,7 @@ class LogHandler(QtCore.QObject):
     lines_translated = QtCore.pyqtSignal(list)
     play_warning_sound = QtCore.pyqtSignal()
 
-    def __init__(self, log_file_path, language_var, service_var, ignore_list, fixed_translations, scenery_names,enable_driver_warning):
+    def __init__(self, log_file_path, language_var, service_var, ignore_list, fixed_translations, scenery_names, enable_driver_warning, ui_lang):
         super().__init__()
         self.log_file_path = log_file_path
         self.file = open(log_file_path, 'r', encoding='utf-8')
@@ -92,10 +148,11 @@ class LogHandler(QtCore.QObject):
         self.warning_sound = QSoundEffect()
         self.warning_sound.setSource(QtCore.QUrl.fromLocalFile(resource_path("res/timer_alarm.wav")))
         self.warning_sound.setLoopCount(1)
-        self.warning_sound.setVolume(0.8)  # Lautstärke von 0.0 bis 1.0
+        self.warning_sound.setVolume(0.8)
         self.play_warning_sound.connect(self.warning_sound.play)
         self.warned_drivers = set()
         self.enable_driver_warning = enable_driver_warning
+        self.ui_lang = ui_lang  # NEU
 
     def get_driver_distance(self, name):
         try:
@@ -103,15 +160,12 @@ class LogHandler(QtCore.QObject):
             resp = requests.get(url, timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
-                dist = data.get("_sum", {}).get("currentDistance")
-                if isinstance(dist, (int, float)):
-                    return dist
-            # Wenn dist None, null, oder nicht vorhanden: Alarm auslösen per Rückgabe eines Markers
+                d = data.get("_sum", {}).get("currentDistance")
+                if isinstance(d, (int, float)):
+                    return d
             return None
         except Exception:
             return None
-
-
 
     @staticmethod
     def contains_time(line):
@@ -163,29 +217,25 @@ class LogHandler(QtCore.QObject):
                     continue
                 if message in self.ignore_list:
                     continue
-                driver_name = None
-                dist = None
 
+                driver_name = None
+                dist_val = None
                 username_match = re.search(r'@([^\s:]+)', timestamp_user)
                 if username_match:
                     driver_name = username_match.group(1)
                     if not hasattr(self, "_driver_cache"):
                         self._driver_cache = {}
-
                     if driver_name not in self._driver_cache:
                         self._driver_cache[driver_name] = self.get_driver_distance(driver_name)
+                    dist_val = self._driver_cache.get(driver_name)
 
-                    dist = self._driver_cache.get(driver_name)
-
-                # --- NEU: Warnlogik nur mit Fahrername ---
+                # Warnlogik lokalisiert
                 if driver_name and self.enable_driver_warning():
-                    # Warnen bei unbekannter Distanz (None) ODER < 100, nur einmal pro Fahrer
-                    if (dist is None or (isinstance(dist, (int, float)) and dist < 100)) and driver_name not in self.warned_drivers:
-                        warning = f"ATTENTION: DRIVER {driver_name} drove less than 100 KM, be careful!"
+                    if (dist_val is None or (isinstance(dist_val, (int, float)) and dist_val < 100)) and driver_name not in self.warned_drivers:
+                        warning = I18N["warning_driver_lt_100"].get(self.ui_lang, I18N["warning_driver_lt_100"]["en"]).format(name=driver_name)
                         translated_lines.append((warning, "warning"))
                         self.play_warning_sound.emit()
                         self.warned_drivers.add(driver_name)
-
 
                 current_target_language = self.language_var() if callable(self.language_var) else self.language_var
                 translation_service = self.service_var() if callable(self.service_var) else self.service_var
@@ -205,12 +255,11 @@ class LogHandler(QtCore.QObject):
         text_lower = text.lower()
 
         if (
-            text_lower in self.fixed_translations  
+            text_lower in self.fixed_translations
             and current_target_language in self.fixed_translations[text_lower]
         ):
             return self.fixed_translations[text_lower][current_target_language]
 
-    
         masked_text, mask_map = self._mask_scenery_names(text)
 
         if translation_service == "ChatGPT":
@@ -219,9 +268,8 @@ class LogHandler(QtCore.QObject):
             translated = self.translate_with_google(masked_text)
         elif translation_service == "Deepl":
             translated = self.translate_with_deepl(masked_text)
-        else:  
+        else:
             translated = masked_text
-
 
         return self._unmask_scenery_names(translated, mask_map)
 
@@ -277,7 +325,6 @@ class LogHandler(QtCore.QObject):
 
         except Exception as e:
             return f"[ChatGPT Error] {str(e)}"
-
 
     def translate_with_google(self, text):
         try:
@@ -356,7 +403,7 @@ class OverlayWindow(QtWidgets.QWidget):
         self.text_edit.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.text_edit.setFont(QtGui.QFont("Helvetica", self.font_size, QtGui.QFont.Weight.Bold))
         self.text_edit.setStyleSheet(
-            f"background-color: {'#3E3E3E' if dark_mode else '#FFFFFF'};"  # keine 'color:' hier
+            f"background-color: {'#3E3E3E' if dark_mode else '#FFFFFF'};"
         )
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -423,7 +470,17 @@ class OverlayWindow(QtWidgets.QWidget):
 class App(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Train Driver 2 Translation Helper 0.4.1")
+
+        # --- UI-Sprache laden/abfragen (NEU) ---
+        self.app_settings = load_app_settings()
+        self.ui_lang = self.app_settings.get("ui_language")
+        if self.ui_lang not in ("de", "en", "pl"):
+            self.ui_lang = self._ask_ui_language()
+            self.app_settings["ui_language"] = self.ui_lang
+            save_app_settings(self.app_settings)
+        self._t = lambda key, **kw: I18N[key][self.ui_lang].format(**kw)
+
+        self.setWindowTitle(self._t("window_title", ver=current_version))
         self.overlay_window = None
         self.overlay_font_size = 10
 
@@ -438,7 +495,7 @@ class App(QtWidgets.QMainWindow):
         self.language_var = "English"
         self.service_var = "Deepl"
         self.is_dark_mode = True
-        self.enable_driver_warning = True 
+        self.enable_driver_warning = True
 
         self.handlers = []
         self.opened_logs = set()
@@ -454,6 +511,26 @@ class App(QtWidgets.QMainWindow):
         f10_shortcut.activated.connect(self.toggle_overlay)
         self._overlay_sync_state = {}
         self.start_update_check()
+
+    def _ask_ui_language(self) -> str:
+        items = [I18N["language_names"]["de"], I18N["language_names"]["en"], I18N["language_names"]["pl"]]
+        reverse = {
+            I18N["language_names"]["de"]: "de",
+            I18N["language_names"]["en"]: "en",
+            I18N["language_names"]["pl"]: "pl",
+        }
+        # Dialogtitel/Label neutral auf Deutsch anzeigen; du kannst hier auch Englisch wählen
+        choice, ok = QtWidgets.QInputDialog.getItem(
+            self,
+            I18N["select_ui_language_title"]["en"],
+            I18N["select_ui_language_label"]["en"],
+            items,
+            0,
+            False
+        )
+        if ok and choice in reverse:
+            return reverse[choice]
+        return "en"
 
     def _on_global_key(self, key):
         try:
@@ -479,9 +556,9 @@ class App(QtWidgets.QMainWindow):
             top_layout.addWidget(img_label)
 
         file_layout = QtWidgets.QHBoxLayout()
-        file_label = QtWidgets.QLabel("TD2 Logs Path:")
+        file_label = QtWidgets.QLabel(self._t("logs_path"))
         self.file_entry = QtWidgets.QLineEdit()
-        browse_btn = QtWidgets.QPushButton("Browse")
+        browse_btn = QtWidgets.QPushButton(self._t("browse"))
         browse_btn.clicked.connect(self.browse_directory)
         file_layout.addWidget(file_label)
         file_layout.addWidget(self.file_entry)
@@ -489,10 +566,9 @@ class App(QtWidgets.QMainWindow):
         top_layout.addLayout(file_layout)
         main_layout.addLayout(top_layout)
 
-
         # Frame2
         frame2 = QtWidgets.QHBoxLayout()
-        frame2.addWidget(QtWidgets.QLabel("Target Language:"))
+        frame2.addWidget(QtWidgets.QLabel(self._t("target_language")))
         language_values = ["English", "American English", "German", "Polish", "French", "Spanish", "Italian", "Dutch",
                            "Portuguese", "Brazilian Portuguese", "Greek", "Swedish", "Danish", "Finnish", "Norwegian",
                            "Czech", "Slovak", "Hungarian", "Romanian", "Bulgarian", "Croatian", "Serbian", "Slovenian",
@@ -503,7 +579,7 @@ class App(QtWidgets.QMainWindow):
         self.language_combobox.currentTextChanged.connect(lambda val: setattr(self, "language_var", val))
         frame2.addWidget(self.language_combobox)
 
-        frame2.addWidget(QtWidgets.QLabel("Translation Service:"))
+        frame2.addWidget(QtWidgets.QLabel(self._t("service")))
         service_values = ["ChatGPT", "Google Translate", "Deepl"]
         self.service_combobox = QtWidgets.QComboBox()
         self.service_combobox.addItems(service_values)
@@ -514,23 +590,22 @@ class App(QtWidgets.QMainWindow):
 
         # Frame3
         frame3 = QtWidgets.QHBoxLayout()
-        close_tab_btn = QtWidgets.QPushButton("Close Selected Tab")
+        close_tab_btn = QtWidgets.QPushButton(self._t("close_tab"))
         close_tab_btn.clicked.connect(self.close_selected_tab)
         frame3.addWidget(close_tab_btn)
-        overlay_btn = QtWidgets.QPushButton("Toggle Overlay")
+        overlay_btn = QtWidgets.QPushButton(self._t("toggle_overlay"))
         overlay_btn.clicked.connect(self.toggle_overlay)
         frame3.addWidget(overlay_btn)
-        aplus_btn = QtWidgets.QPushButton("A+")
+        aplus_btn = QtWidgets.QPushButton(self._t("font_plus"))
         aplus_btn.clicked.connect(lambda: self.change_overlay_font_size(1))
         frame3.addWidget(aplus_btn)
-        aminus_btn = QtWidgets.QPushButton("A−")
+        aminus_btn = QtWidgets.QPushButton(self._t("font_minus"))
         aminus_btn.clicked.connect(lambda: self.change_overlay_font_size(-1))
         frame3.addWidget(aminus_btn)
-        self.warning_checkbox = QtWidgets.QCheckBox("Driver Warnings")
+        self.warning_checkbox = QtWidgets.QCheckBox(self._t("driver_warnings"))
         self.warning_checkbox.setChecked(True)
         self.warning_checkbox.stateChanged.connect(lambda state: setattr(self, "enable_driver_warning", state == QtCore.Qt.CheckState.Checked))
         frame3.addWidget(self.warning_checkbox)
-
 
         main_layout.addLayout(frame3)
 
@@ -540,9 +615,14 @@ class App(QtWidgets.QMainWindow):
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_selected_tab)
         main_layout.addWidget(self.tab_widget)
+
     def browse_directory(self):
         dialog = QtWidgets.QFileDialog(self)
-        directory_path = dialog.getExistingDirectory(self, "Select Log Directory", os.path.expanduser("~/Documents/TTSK/TrainDriver2/Logs"))
+        directory_path = dialog.getExistingDirectory(
+            self,
+            self._t("select_log_dir"),
+            os.path.expanduser("~/Documents/TTSK/TrainDriver2/Logs")
+        )
         if directory_path:
             self.directory_path = directory_path
             self.file_entry.setText(directory_path)
@@ -583,7 +663,8 @@ class App(QtWidgets.QMainWindow):
             ignore_list=self.ignore_list,
             fixed_translations=self.fixed_translations,
             scenery_names=self.scenery_names,
-            enable_driver_warning=lambda: self.warning_checkbox.isChecked()
+            enable_driver_warning=lambda: self.warning_checkbox.isChecked(),
+            ui_lang=self.ui_lang  # NEU
         )
         handler.setParent(self)
         handler.lines_translated.connect(lambda lines: self.process_lines(handler, text_area, lines))
@@ -609,14 +690,15 @@ class App(QtWidgets.QMainWindow):
         if self.directory_path:
             log_files = [os.path.join(self.directory_path, f) for f in os.listdir(self.directory_path)
                          if os.path.isfile(os.path.join(self.directory_path, f)) and "Log" in f]
-            for lf in log_files:
-                mtime = os.path.getmtime(lf)
-                if lf not in self.opened_logs:
-                    old_mtime = self.known_logs.get(lf, None)
-                    if old_mtime is not None and mtime > old_mtime:
-                        self.open_log_in_new_tab(lf)
-                # Aktualisiere known_logs mit neuem mtime
-                self.known_logs[lf] = mtime
+        else:
+            log_files = []
+        for lf in log_files:
+            mtime = os.path.getmtime(lf)
+            if lf not in self.opened_logs:
+                old_mtime = self.known_logs.get(lf, None)
+                if old_mtime is not None and mtime > old_mtime:
+                    self.open_log_in_new_tab(lf)
+            self.known_logs[lf] = mtime
 
         QtCore.QTimer.singleShot(10000, self.monitor_new_logs)
 
@@ -636,8 +718,6 @@ class App(QtWidgets.QMainWindow):
             QCheckBox {{ background-color: {bg_color}; color: {fg_color}; }}
         """)
 
-        
-
     def process_lines(self, handler, text_area, lines):
         thread = QtCore.QThread()
         worker = TranslationWorker(handler, lines)
@@ -649,7 +729,6 @@ class App(QtWidgets.QMainWindow):
             thread.wait()
             thread.deleteLater()
             worker.deleteLater()
-            # Entferne aus aktiven Threads
             if hasattr(handler, "active_threads"):
                 handler.active_threads = [
                     t for t in handler.active_threads if t[0] is not thread
@@ -680,16 +759,13 @@ class App(QtWidgets.QMainWindow):
             for thread, worker in handler.active_threads:
                 try:
                     if hasattr(worker, "cancelled"):
-                        worker.cancelled = True  # Worker-Stop setzen
-
+                        worker.cancelled = True
                     if isinstance(thread, QtCore.QThread) and QtCore.QThread.isRunning(thread):
                         thread.quit()
                         thread.wait()
                 except RuntimeError:
                     continue
             handler.active_threads.clear()
-
-
 
         self.tab_widget.removeTab(idx)
         del self.handlers[idx]
@@ -704,7 +780,7 @@ class App(QtWidgets.QMainWindow):
         try:
             resp = requests.get(
                 "https://api.github.com/repos/bravuralion/TD2-Chat-Translator/releases/latest",
-                timeout=3  # hartes Timeout
+                timeout=3
             )
             resp.raise_for_status()
             latest_release = resp.json()
@@ -724,8 +800,10 @@ class App(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(str, str)
     def _prompt_update(self, latest_version, download_url):
         reply = QtWidgets.QMessageBox.question(
-            self, "Update Available",
-            f"A new version {latest_version} is available. Download?")
+            self,
+            self._t("update_available_title"),
+            self._t("update_available_body", ver=latest_version)
+        )
         if reply == QtWidgets.QMessageBox.StandardButton.Yes:
             os.startfile(download_url)
 
@@ -747,7 +825,6 @@ class App(QtWidgets.QMainWindow):
             self.overlay_window.close()
             self.overlay_window = None
 
-
     def toggle_overlay(self):
         if self.overlay_window and self.overlay_window.isVisible():
             self.overlay_window.close()
@@ -755,7 +832,6 @@ class App(QtWidgets.QMainWindow):
         else:
             self.overlay_window = OverlayWindow(dark_mode=self.is_dark_mode, font_size=self.overlay_font_size)
             self.overlay_window.show()
-            # Zeige nur die zuletzt aktive Tab-Übersetzung im Overlay
             current_tab = self.tab_widget.currentIndex()
             if current_tab != -1:
                 handler, text_area, timer, tab_idx = self.handlers[current_tab]
@@ -765,7 +841,6 @@ class App(QtWidgets.QMainWindow):
         if not self.overlay_window or not self.overlay_window.isVisible():
             return
 
-        # Initialen Full-Sync (formatiert) durchführen
         src_cur = source_text_widget.textCursor()
         src_cur.movePosition(QtGui.QTextCursor.MoveOperation.Start)
         src_cur.movePosition(QtGui.QTextCursor.MoveOperation.End, QtGui.QTextCursor.MoveMode.KeepAnchor)
@@ -777,17 +852,16 @@ class App(QtWidgets.QMainWindow):
         self.overlay_window.text_edit.setTextCursor(ov_cur)
         self.overlay_window.text_edit.ensureCursorVisible()
 
-        # Overlay-Status merken
         self._overlay_sync_state[source_text_widget] = {
             "last_blocks": source_text_widget.document().blockCount()
         }
-
 
     def change_overlay_font_size(self, delta):
         if not self.overlay_window or not self.overlay_window.isVisible():
             return
         self.overlay_font_size = max(6, self.overlay_font_size + delta)
         self.overlay_window.change_font_size(delta)
+
     def display_translations(self, text_area, translated_lines):
         max_lines = 50
         cursor = text_area.textCursor()
@@ -814,8 +888,8 @@ class App(QtWidgets.QMainWindow):
             cursor.insertText(line + "\n", fmt)
             text_area.setTextCursor(cursor)
         text_area.ensureCursorVisible()
+
         if self.overlay_window and self.overlay_window.isVisible():
-            # nur den soeben eingefügten Bereich an das Overlay anhängen (mit Formatierung)
             ins_cur = QtGui.QTextCursor(text_area.document())
             ins_cur.setPosition(insert_start)
             ins_cur.setPosition(cursor.position(), QtGui.QTextCursor.MoveMode.KeepAnchor)
@@ -827,7 +901,6 @@ class App(QtWidgets.QMainWindow):
             ov_cur.insertFragment(fragment)
             ov.setTextCursor(ov_cur)
             ov.ensureCursorVisible()
-
 
         doc = text_area.document()
         if doc.blockCount() > max_lines:
@@ -848,4 +921,3 @@ if __name__ == "__main__":
     main_win = App()
     main_win.show()
     sys.exit(app.exec())
-
