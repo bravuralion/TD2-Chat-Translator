@@ -822,6 +822,12 @@ class App(QtWidgets.QMainWindow):
             self._t("update_available_body", ver=latest_version)
         )
         self._open_update_url(download_url)
+        # Close the application after triggering the update download so the
+        # user can install the new version without the current instance
+        # running in the background.
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _open_update_url(self, download_url):
         try:
