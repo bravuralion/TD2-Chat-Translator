@@ -54,9 +54,9 @@ I18N = {
     },
     "update_available_title": {"de": "Update verfügbar", "en": "Update Available", "pl": "Dostępna aktualizacja"},
     "update_available_body": {
-        "de": "Eine neue Version {ver} ist verfügbar. Herunterladen?",
-        "en": "A new version {ver} is available. Download?",
-        "pl": "Nowa wersja {ver} jest dostępna. Pobierzesz?"
+        "de": "Eine neue Version {ver} ist verfügbar. Der Download startet nach dem Bestätigen.",
+        "en": "A new version {ver} is available. Download will start after confirmation.",
+        "pl": "Nowa wersja {ver} jest dostępna. Pobieranie rozpocznie się po potwierdzeniu."
     },
     "warning_driver_lt_100": {
         "de": "ACHTUNG: FAHRER {name} hat vermutlich weniger als 100 km gefahren – Vorsicht!",
@@ -500,7 +500,7 @@ class App(QtWidgets.QMainWindow):
         self.handlers = []
         self.opened_logs = set()
         self.latest_log_time = None
-        self.directory_path = ""
+        self.directory_path = self.app_settings.get("logs_directory", "")
         self.known_logs = {}
         self.tab_widget = None
         self.init_ui()
@@ -616,6 +616,30 @@ class App(QtWidgets.QMainWindow):
         self.tab_widget.tabCloseRequested.connect(self.close_selected_tab)
         main_layout.addWidget(self.tab_widget)
 
+        if self.directory_path and os.path.isdir(self.directory_path):
+            if not self._activate_log_directory(self.directory_path, save=False):
+                self.directory_path = ""
+
+    def _activate_log_directory(self, directory_path, save=True):
+        if not directory_path or not os.path.isdir(directory_path):
+            return False
+
+        self.directory_path = directory_path
+        self.file_entry.setText(directory_path)
+
+        if save:
+            self.app_settings["logs_directory"] = directory_path
+            save_app_settings(self.app_settings)
+
+        newest = self.find_newest_log_file(directory_path)
+        if newest:
+            self.open_log_in_new_tab(newest)
+            self.latest_log_time = os.path.getctime(newest)
+
+        self.record_all_logs()
+        self.monitor_new_logs()
+        return True
+
     def browse_directory(self):
         dialog = QtWidgets.QFileDialog(self)
         directory_path = dialog.getExistingDirectory(
@@ -624,14 +648,7 @@ class App(QtWidgets.QMainWindow):
             os.path.expanduser("~/Documents/TTSK/TrainDriver2/Logs")
         )
         if directory_path:
-            self.directory_path = directory_path
-            self.file_entry.setText(directory_path)
-            newest = self.find_newest_log_file(directory_path)
-            if newest:
-                self.open_log_in_new_tab(newest)
-                self.latest_log_time = os.path.getctime(newest)
-            self.record_all_logs()
-            self.monitor_new_logs()
+            self._activate_log_directory(directory_path)
 
     def record_all_logs(self):
         if not self.directory_path:
@@ -799,13 +816,25 @@ class App(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(str, str)
     def _prompt_update(self, latest_version, download_url):
-        reply = QtWidgets.QMessageBox.question(
+        QtWidgets.QMessageBox.information(
             self,
             self._t("update_available_title"),
             self._t("update_available_body", ver=latest_version)
         )
-        if reply == QtWidgets.QMessageBox.StandardButton.Yes:
-            os.startfile(download_url)
+        self._open_update_url(download_url)
+
+    def _open_update_url(self, download_url):
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(download_url)
+                return
+        except Exception:
+            pass
+
+        try:
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl(download_url))
+        except Exception:
+            pass
 
     def closeEvent(self, event):
         for handler, text_area, timer, tab_idx in self.handlers:
