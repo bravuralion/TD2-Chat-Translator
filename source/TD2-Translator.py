@@ -62,6 +62,26 @@ I18N = {
         "de": "ACHTUNG: FAHRER {name} hat vermutlich weniger als 100 km gefahren – Vorsicht!",
         "en": "ATTENTION: DRIVER {name} may drove less than 100 KM, be careful!",
         "pl": "UWAGA: KIEROWCA {name} przejechał mniej niż 100 KM – ostrożnie!"
+    },
+    # --- NEU: Ingame-Chat-Ausgabe ---
+    "game_install_dir": {
+        "de": "TD2-Installationsordner:",
+        "en": "TD2 Install Directory:",
+        "pl": "Katalog instalacji TD2:"
+    },
+    "select_game_dir": {
+        "de": "TD2-Installationsordner auswählen",
+        "en": "Select TD2 Install Directory",
+        "pl": "Wybierz katalog instalacji TD2"
+    },
+    "game_dir_warning_title": {"de": "Hinweis", "en": "Notice", "pl": "Informacja"},
+    "game_dir_warning_body": {
+        "de": "In diesem Ordner wurde kein 'MelonLoader'-Unterordner gefunden. "
+              "Bitte prüfe, ob du wirklich den TD2-Installationsordner ausgewählt hast.",
+        "en": "No 'MelonLoader' subfolder was found in this directory. "
+              "Please check whether you really selected the TD2 install directory.",
+        "pl": "W tym katalogu nie znaleziono podkatalogu 'MelonLoader'. "
+              "Sprawdź, czy wybrano właściwy katalog instalacji TD2."
     }
 }
 
@@ -200,6 +220,7 @@ class LogHandler(QtCore.QObject):
         max_workers = 1 if (self.service_var() if callable(self.service_var) else self.service_var) == "Google Translate" else 4
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_line = {}
+            future_to_original_message = {}
             for line in lines:
                 match_fd = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) ([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż].*?@[^: ]+)(: | )(.*)$', line)
                 match_player = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (\d+@[^: ]+)(: | )(.*)$', line)
@@ -233,7 +254,7 @@ class LogHandler(QtCore.QObject):
                 if driver_name and self.enable_driver_warning():
                     if (dist_val is None or (isinstance(dist_val, (int, float)) and dist_val < 100)) and driver_name not in self.warned_drivers:
                         warning = I18N["warning_driver_lt_100"].get(self.ui_lang, I18N["warning_driver_lt_100"]["en"]).format(name=driver_name)
-                        translated_lines.append((warning, "warning"))
+                        translated_lines.append((warning, "warning", True))
                         self.play_warning_sound.emit()
                         self.warned_drivers.add(driver_name)
 
@@ -243,11 +264,20 @@ class LogHandler(QtCore.QObject):
 
                 future = executor.submit(self.translate_message, message, translation_service)
                 future_to_line[future] = (timestamp_user, tag)
+                future_to_original_message[future] = message
             for future in future_to_line:
                 timestamp_user, tag = future_to_line[future]
                 translation = future.result()
                 translation = re.sub(r'【[^】]*】', '', translation).strip()
-                translated_lines.append((f"{timestamp_user}: {translation}", tag))
+
+                # NEU: Übersetzung mit Original vergleichen (Groß-/Kleinschreibung und
+                # Leerzeichen am Rand ignorieren) - falls identisch, macht ein Eintrag im
+                # Ingame-Chat keinen Sinn (z.B. bei Systemtexten, die eh schon in der
+                # Zielsprache sind, oder bei Namen/Kürzeln, die nicht übersetzt werden).
+                original_message = future_to_original_message.get(future, "")
+                is_unchanged = translation.strip().casefold() == original_message.strip().casefold()
+
+                translated_lines.append((f"{timestamp_user}: {translation}", tag, is_unchanged))
         return translated_lines
 
     def translate_message(self, text, translation_service):
@@ -383,6 +413,43 @@ class LogHandler(QtCore.QObject):
         }
         return language_codes.get(language, None)
 
+    # NEU: Kurzes, ingame-tauglisches Sprachkürzel (z.B. "EN", "DE", "PL") statt der
+    # vollen Deepl-Codes (die z.T. Varianten wie "EN-GB"/"EN-US" unterscheiden, was
+    # für die reine Chat-Anzeige zu viel Detail wäre).
+    @staticmethod
+    def get_short_language_code(language):
+        short_codes = {
+            "English": "EN",
+            "American English": "EN",
+            "German": "DE",
+            "Polish": "PL",
+            "French": "FR",
+            "Spanish": "ES",
+            "Italian": "IT",
+            "Dutch": "NL",
+            "Portuguese": "PT",
+            "Brazilian Portuguese": "PT",
+            "Greek": "EL",
+            "Swedish": "SV",
+            "Danish": "DA",
+            "Finnish": "FI",
+            "Norwegian": "NO",
+            "Czech": "CS",
+            "Slovak": "SK",
+            "Hungarian": "HU",
+            "Romanian": "RO",
+            "Bulgarian": "BG",
+            "Croatian": "HR",
+            "Serbian": "SR",
+            "Slovenian": "SL",
+            "Estonian": "ET",
+            "Latvian": "LV",
+            "Lithuanian": "LT",
+            "Maltese": "MT",
+            "Russian": "RU"
+        }
+        return short_codes.get(language, language[:2].upper())
+
 class OverlayWindow(QtWidgets.QWidget):
     SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".td2_overlay_settings.json")
 
@@ -501,6 +568,8 @@ class App(QtWidgets.QMainWindow):
         self.opened_logs = set()
         self.latest_log_time = None
         self.directory_path = self.app_settings.get("logs_directory", "")
+        # --- NEU: TD2-Installationsordner für die Ingame-Chat-Ausgabe (Mod) ---
+        self.game_install_dir = self.app_settings.get("game_install_dir", "")
         self.known_logs = {}
         self.tab_widget = None
         self.init_ui()
@@ -565,6 +634,18 @@ class App(QtWidgets.QMainWindow):
         file_layout.addWidget(browse_btn)
         top_layout.addLayout(file_layout)
         main_layout.addLayout(top_layout)
+
+        # --- NEU: Zeile für den TD2-Installationsordner (Ingame-Chat-Ausgabe) ---
+        game_dir_layout = QtWidgets.QHBoxLayout()
+        game_dir_label = QtWidgets.QLabel(self._t("game_install_dir"))
+        self.game_dir_entry = QtWidgets.QLineEdit()
+        self.game_dir_entry.setText(self.game_install_dir)
+        game_dir_browse_btn = QtWidgets.QPushButton(self._t("browse"))
+        game_dir_browse_btn.clicked.connect(self.browse_game_directory)
+        game_dir_layout.addWidget(game_dir_label)
+        game_dir_layout.addWidget(self.game_dir_entry)
+        game_dir_layout.addWidget(game_dir_browse_btn)
+        main_layout.addLayout(game_dir_layout)
 
         # Frame2
         frame2 = QtWidgets.QHBoxLayout()
@@ -648,6 +729,48 @@ class App(QtWidgets.QMainWindow):
         )
         if directory_path:
             self._activate_log_directory(directory_path)
+
+    def browse_game_directory(self):
+        """NEU: TD2-Installationsordner auswählen (für den MelonLoader-Mod / Ingame-Chat-Ausgabe)."""
+        dialog = QtWidgets.QFileDialog(self)
+        directory_path = dialog.getExistingDirectory(
+            self,
+            self._t("select_game_dir"),
+            self.game_install_dir or os.path.expanduser("~")
+        )
+        if directory_path:
+            if not os.path.isdir(os.path.join(directory_path, "MelonLoader")):
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    self._t("game_dir_warning_title"),
+                    self._t("game_dir_warning_body")
+                )
+            self.game_install_dir = directory_path
+            self.game_dir_entry.setText(directory_path)
+            self.app_settings["game_install_dir"] = directory_path
+            save_app_settings(self.app_settings)
+
+    def get_game_chat_file_path(self):
+        """NEU: Pfad zur Datei, die der MelonLoader-Mod im Spiel einliest."""
+        if not self.game_install_dir or not os.path.isdir(self.game_install_dir):
+            return None
+        user_data_dir = os.path.join(self.game_install_dir, "MelonLoader", "UserData")
+        try:
+            os.makedirs(user_data_dir, exist_ok=True)
+        except Exception:
+            return None
+        return os.path.join(user_data_dir, "chat_translations_incoming.txt")
+
+    def write_to_game_chat(self, text):
+        """NEU: Übersetzte Zeile an den Mod übergeben, damit sie ingame im Chat angezeigt wird."""
+        path = self.get_game_chat_file_path()
+        if not path:
+            return
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(text + "\n")
+        except Exception:
+            pass
 
     def record_all_logs(self):
         if not self.directory_path:
@@ -901,7 +1024,7 @@ class App(QtWidgets.QMainWindow):
         cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
         insert_start = cursor.position()
 
-        for line, line_type in translated_lines:
+        for line, line_type, skip_game_chat in translated_lines:
             fmt = QtGui.QTextCharFormat()
             if line_type == "fahrdienstleiter":
                 fmt.setForeground(QtGui.QColor("#DF7676"))
@@ -920,6 +1043,17 @@ class App(QtWidgets.QMainWindow):
 
             cursor.insertText(line + "\n", fmt)
             text_area.setTextCursor(cursor)
+
+            # --- NEU: Übersetzung zusätzlich an den Ingame-Chat-Mod weitergeben ---
+            # "warning" ist eine reine Tool-interne Fahrer-Distanz-Warnung, keine
+            # Chat-Übersetzung - die soll nicht ins Ingame-Chat geschrieben werden.
+            # skip_game_chat ist zusätzlich True, wenn Original und Übersetzung
+            # inhaltlich identisch sind (z.B. bereits englische Systemtexte) -
+            # dann macht ein zusätzlicher Eintrag im Ingame-Chat keinen Sinn.
+            if line_type != "warning" and not skip_game_chat:
+                lang_code = LogHandler.get_short_language_code(self.language_var)
+                self.write_to_game_chat(f"[{lang_code}] {line}")
+
         text_area.ensureCursorVisible()
 
         if self.overlay_window and self.overlay_window.isVisible():

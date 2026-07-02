@@ -1,0 +1,6 @@
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\Release\net9.0\chat-injector.csproj.AssemblyReference.cache
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\Release\net9.0\chat-injector.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\Release\net9.0\chat-injector.AssemblyInfoInputs.cache
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\Release\net9.0\chat-injector.AssemblyInfo.cs
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\Release\net9.0\chat-injector.csproj.CoreCompileInputs.cache
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\Release\net9.0\chat-injector.sourcelink.json

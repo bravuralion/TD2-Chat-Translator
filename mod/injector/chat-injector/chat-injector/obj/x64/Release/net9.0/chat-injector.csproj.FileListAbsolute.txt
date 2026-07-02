@@ -1,0 +1,13 @@
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\chat-injector.csproj.AssemblyReference.cache
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\chat-injector.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\chat-injector.AssemblyInfoInputs.cache
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\chat-injector.AssemblyInfo.cs
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\chat-injector.csproj.CoreCompileInputs.cache
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\chat-injector.sourcelink.json
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\bin\x64\Release\net9.0\chat-injector.deps.json
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\bin\x64\Release\net9.0\chat-injector.dll
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\bin\x64\Release\net9.0\chat-injector.pdb
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\chat-injector.dll
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\refint\chat-injector.dll
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\chat-injector.pdb
+C:\Users\Bravura Revolution\Documents\GitHub\TD2-Chat-Translator\mod\injector\chat-injector\chat-injector\obj\x64\Release\net9.0\ref\chat-injector.dll
