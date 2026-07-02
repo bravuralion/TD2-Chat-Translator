@@ -65,9 +65,9 @@ I18N = {
     },
     # --- NEU: Ingame-Chat-Ausgabe ---
     "game_install_dir": {
-        "de": "TD2-Installationsordner:",
-        "en": "TD2 Install Directory:",
-        "pl": "Katalog instalacji TD2:"
+        "de": "TD2-Installationsordner (für Ingame-Chat):",
+        "en": "TD2 Install Directory (for Ingame Chat):",
+        "pl": "Katalog instalacji TD2 (dla czatu w grze):"
     },
     "select_game_dir": {
         "de": "TD2-Installationsordner auswählen",
@@ -750,8 +750,17 @@ class App(QtWidgets.QMainWindow):
             self.app_settings["game_install_dir"] = directory_path
             save_app_settings(self.app_settings)
 
-    def get_game_chat_file_path(self):
-        """NEU: Pfad zur Datei, die der MelonLoader-Mod im Spiel einliest."""
+    def get_game_chat_file_path(self, log_file_path):
+        """Pfad zur Datei, die der MelonLoader-Mod im Spiel einliest.
+
+        WICHTIG (Mehrinstanzen-Fix): Der Dateiname wird aus dem Namen der TD2-eigenen
+        Log-Datei abgeleitet (log_file_path), NICHT mehr fest "chat_translations_incoming.txt".
+        Jede TD2-Instanz legt beim Start eine eigene, neu benannte Log-Datei an - genau diese
+        nutzen wir bereits, um pro Instanz einen eigenen Tab zu öffnen (siehe open_log_in_new_tab).
+        Der zugehörige Mod im Spiel sucht sich beim eigenen Start dieselbe Log-Datei und leitet
+        daraus denselben Dateinamen ab - dadurch bekommt jede Instanz automatisch ihren eigenen,
+        isolierten Kanal, statt dass sich mehrere laufende TD2-Prozesse eine Datei teilen.
+        """
         if not self.game_install_dir or not os.path.isdir(self.game_install_dir):
             return None
         user_data_dir = os.path.join(self.game_install_dir, "MelonLoader", "UserData")
@@ -759,11 +768,18 @@ class App(QtWidgets.QMainWindow):
             os.makedirs(user_data_dir, exist_ok=True)
         except Exception:
             return None
-        return os.path.join(user_data_dir, "chat_translations_incoming.txt")
+        session_key = os.path.splitext(os.path.basename(log_file_path))[0]
+        return os.path.join(user_data_dir, f"chat_translations_incoming__{session_key}.txt")
 
-    def write_to_game_chat(self, text):
-        """NEU: Übersetzte Zeile an den Mod übergeben, damit sie ingame im Chat angezeigt wird."""
-        path = self.get_game_chat_file_path()
+    def write_to_game_chat(self, text, log_file_path):
+        """Übersetzte Zeile an den Mod übergeben, damit sie ingame im Chat angezeigt wird.
+
+        log_file_path identifiziert die TD2-Instanz, für die diese Übersetzung gedacht ist
+        (siehe get_game_chat_file_path) - so landen Übersetzungen nicht mehr in allen
+        gleichzeitig laufenden TD2-Fenstern, sondern nur in der Instanz, aus der die
+        Original-Nachricht tatsächlich kam.
+        """
+        path = self.get_game_chat_file_path(log_file_path)
         if not path:
             return
         try:
@@ -862,7 +878,7 @@ class App(QtWidgets.QMainWindow):
         worker.moveToThread(thread)
 
         def on_finished(result):
-            self.display_translations(text_area, result)
+            self.display_translations(handler, text_area, result)
             thread.quit()
             thread.wait()
             thread.deleteLater()
@@ -1018,7 +1034,7 @@ class App(QtWidgets.QMainWindow):
         self.overlay_font_size = max(6, self.overlay_font_size + delta)
         self.overlay_window.change_font_size(delta)
 
-    def display_translations(self, text_area, translated_lines):
+    def display_translations(self, handler, text_area, translated_lines):
         max_lines = 50
         cursor = text_area.textCursor()
         cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
@@ -1052,7 +1068,7 @@ class App(QtWidgets.QMainWindow):
             # dann macht ein zusätzlicher Eintrag im Ingame-Chat keinen Sinn.
             if line_type != "warning" and not skip_game_chat:
                 lang_code = LogHandler.get_short_language_code(self.language_var)
-                self.write_to_game_chat(f"[{lang_code}] {line}")
+                self.write_to_game_chat(f"[{lang_code}] {line}", handler.log_file_path)
 
         text_area.ensureCursorVisible()
 
