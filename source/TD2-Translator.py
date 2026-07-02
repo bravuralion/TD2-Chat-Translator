@@ -65,9 +65,14 @@ I18N = {
     },
     # --- NEU: Ingame-Chat-Ausgabe ---
     "game_install_dir": {
-        "de": "TD2-Installationsordner (für Ingame-Chat):",
-        "en": "TD2 Install Directory (for Ingame Chat):",
-        "pl": "Katalog instalacji TD2 (dla czatu w grze):"
+        "de": "TD2-Ordner:",
+        "en": "TD2 Folder:",
+        "pl": "Folder TD2:"
+    },
+    "game_install_dir_tooltip": {
+        "de": "TD2-Installationsordner (für die Ingame-Chat-Ausgabe des Mods)",
+        "en": "TD2 install directory (for the mod's ingame chat output)",
+        "pl": "Katalog instalacji TD2 (dla czatu w grze przez moda)"
     },
     "select_game_dir": {
         "de": "TD2-Installationsordner auswählen",
@@ -82,6 +87,22 @@ I18N = {
               "Please check whether you really selected the TD2 install directory.",
         "pl": "W tym katalogu nie znaleziono podkatalogu 'MelonLoader'. "
               "Sprawdź, czy wybrano właściwy katalog instalacji TD2."
+    },
+    # --- NEU: Eigener Benutzername (optional), damit eigene Nachrichten nicht übersetzt werden ---
+    "own_username": {
+        "de": "Benutzername:",
+        "en": "Username:",
+        "pl": "Nazwa użytk.:"
+    },
+    "own_username_tooltip": {
+        "de": "Eigener Benutzername/ID (optional) - damit eigene Nachrichten nicht übersetzt werden",
+        "en": "Your own username/ID (optional) - so your own messages won't be translated",
+        "pl": "Twoja nazwa użytkownika/ID (opcjonalnie) - aby własne wiadomości nie były tłumaczone"
+    },
+    "own_username_placeholder": {
+        "de": "leer lassen, um alle Nachrichten zu übersetzen",
+        "en": "leave empty to translate all messages",
+        "pl": "pozostaw puste, aby tłumaczyć wszystkie wiadomości"
     }
 }
 
@@ -151,7 +172,7 @@ class LogHandler(QtCore.QObject):
     lines_translated = QtCore.pyqtSignal(list)
     play_warning_sound = QtCore.pyqtSignal()
 
-    def __init__(self, log_file_path, language_var, service_var, ignore_list, fixed_translations, scenery_names, enable_driver_warning, ui_lang):
+    def __init__(self, log_file_path, language_var, service_var, ignore_list, fixed_translations, scenery_names, enable_driver_warning, ui_lang, own_username):
         super().__init__()
         self.log_file_path = log_file_path
         self.file = open(log_file_path, 'r', encoding='utf-8')
@@ -173,6 +194,19 @@ class LogHandler(QtCore.QObject):
         self.warned_drivers = set()
         self.enable_driver_warning = enable_driver_warning
         self.ui_lang = ui_lang  # NEU
+        self.own_username = own_username  # NEU: optionaler eigener Benutzername/ID, wird nicht übersetzt
+
+    @staticmethod
+    def extract_sender_candidates(timestamp_user):
+        """Gibt beide möglichen Absender-Bezeichner rund um das '@' zurück, z.B. aus
+        "(13:09:49) 510902@BravuraLion" -> ["510902", "BravuraLion"].
+        Je nach Nachrichtentyp steht der tatsächliche Benutzername mal vor, mal nach dem '@'
+        (Spieler: ID@Username, Fahrdienstleiter: evtl. Username@Station) - deshalb werden
+        beide Seiten zurückgegeben und beim Vergleich mit dem eigenen Benutzernamen geprüft."""
+        match = re.search(r'([^\s@]+)@([^\s:]+)', timestamp_user)
+        if not match:
+            return []
+        return [match.group(1), match.group(2)]
 
     def get_driver_distance(self, name):
         try:
@@ -238,6 +272,15 @@ class LogHandler(QtCore.QObject):
                     continue
                 if message in self.ignore_list:
                     continue
+
+                # NEU: Eigene Nachrichten überspringen (optional, nur wenn own_username gesetzt ist).
+                # Feld leer/None -> Verhalten wie bisher, es wird alles übersetzt.
+                own_username_value = self.own_username() if callable(self.own_username) else self.own_username
+                if own_username_value:
+                    own_username_normalized = own_username_value.strip().casefold()
+                    sender_candidates = self.extract_sender_candidates(timestamp_user)
+                    if any(c.strip().casefold() == own_username_normalized for c in sender_candidates):
+                        continue
 
                 driver_name = None
                 dist_val = None
@@ -570,6 +613,8 @@ class App(QtWidgets.QMainWindow):
         self.directory_path = self.app_settings.get("logs_directory", "")
         # --- NEU: TD2-Installationsordner für die Ingame-Chat-Ausgabe (Mod) ---
         self.game_install_dir = self.app_settings.get("game_install_dir", "")
+        # --- NEU: Optionaler eigener Benutzername/ID, damit eigene Nachrichten nicht übersetzt werden ---
+        self.own_username = self.app_settings.get("own_username", "")
         self.known_logs = {}
         self.tab_widget = None
         self.init_ui()
@@ -613,7 +658,12 @@ class App(QtWidgets.QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QtWidgets.QVBoxLayout(central_widget)
 
-        # Top frame
+        # Top frame: Logo links, daneben ein QFormLayout mit den drei Eingabezeilen.
+        # QFormLayout statt einzelner QHBoxLayouts, weil es Label-Spalte und Feld-Spalte
+        # über ALLE Zeilen hinweg auf dieselbe Breite bringt - auch wenn manche Zeilen
+        # zusätzlich einen Button haben (Logs-Pfad, Installationsordner) und eine nicht
+        # (Benutzername). Ohne das hätten unterschiedlich lange Labels dazu geführt, dass
+        # die Eingabefelder an unterschiedlichen x-Positionen anfangen/enden.
         top_layout = QtWidgets.QHBoxLayout()
         img_path = resource_path(os.path.join('res', 'image.png'))
         if os.path.exists(img_path):
@@ -624,28 +674,47 @@ class App(QtWidgets.QMainWindow):
             img_label.setPixmap(pixmap)
             top_layout.addWidget(img_label)
 
-        file_layout = QtWidgets.QHBoxLayout()
+        form_layout = QtWidgets.QFormLayout()
+        form_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form_layout.setLabelAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+
+        # Zeile 1: TD2 Logs Pfad
         file_label = QtWidgets.QLabel(self._t("logs_path"))
         self.file_entry = QtWidgets.QLineEdit()
         browse_btn = QtWidgets.QPushButton(self._t("browse"))
         browse_btn.clicked.connect(self.browse_directory)
-        file_layout.addWidget(file_label)
-        file_layout.addWidget(self.file_entry)
-        file_layout.addWidget(browse_btn)
-        top_layout.addLayout(file_layout)
-        main_layout.addLayout(top_layout)
+        file_row = QtWidgets.QHBoxLayout()
+        file_row.addWidget(self.file_entry)
+        file_row.addWidget(browse_btn)
+        form_layout.addRow(file_label, file_row)
 
-        # --- NEU: Zeile für den TD2-Installationsordner (Ingame-Chat-Ausgabe) ---
-        game_dir_layout = QtWidgets.QHBoxLayout()
+        # Zeile 2: TD2-Installationsordner (für Ingame-Chat-Ausgabe) - Label gekürzt,
+        # ausführliche Erklärung steckt im Tooltip
         game_dir_label = QtWidgets.QLabel(self._t("game_install_dir"))
+        game_dir_label.setToolTip(self._t("game_install_dir_tooltip"))
         self.game_dir_entry = QtWidgets.QLineEdit()
         self.game_dir_entry.setText(self.game_install_dir)
+        self.game_dir_entry.setToolTip(self._t("game_install_dir_tooltip"))
         game_dir_browse_btn = QtWidgets.QPushButton(self._t("browse"))
         game_dir_browse_btn.clicked.connect(self.browse_game_directory)
-        game_dir_layout.addWidget(game_dir_label)
-        game_dir_layout.addWidget(self.game_dir_entry)
-        game_dir_layout.addWidget(game_dir_browse_btn)
-        main_layout.addLayout(game_dir_layout)
+        game_dir_row = QtWidgets.QHBoxLayout()
+        game_dir_row.addWidget(self.game_dir_entry)
+        game_dir_row.addWidget(game_dir_browse_btn)
+        form_layout.addRow(game_dir_label, game_dir_row)
+
+        # Zeile 3: Optionaler eigener Benutzername/ID (kein Button, aber gleiche Spaltenbreite)
+        # Label gekürzt - "optional" und die genaue Erklärung stecken im Tooltip + Platzhalter
+        own_username_label = QtWidgets.QLabel(self._t("own_username"))
+        own_username_label.setToolTip(self._t("own_username_tooltip"))
+        self.own_username_entry = QtWidgets.QLineEdit()
+        self.own_username_entry.setText(self.own_username)
+        self.own_username_entry.setPlaceholderText(self._t("own_username_placeholder"))
+        self.own_username_entry.setToolTip(self._t("own_username_tooltip"))
+        self.own_username_entry.editingFinished.connect(self.save_own_username)
+        form_layout.addRow(own_username_label, self.own_username_entry)
+
+        top_layout.addLayout(form_layout)
+        main_layout.addLayout(top_layout)
 
         # Frame2
         frame2 = QtWidgets.QHBoxLayout()
@@ -750,6 +819,14 @@ class App(QtWidgets.QMainWindow):
             self.app_settings["game_install_dir"] = directory_path
             save_app_settings(self.app_settings)
 
+    def save_own_username(self):
+        """NEU: Speichert den optionalen eigenen Benutzernamen/ID dauerhaft.
+        Leerer Wert = wie bisher, es wird alles übersetzt."""
+        value = self.own_username_entry.text().strip()
+        self.own_username = value
+        self.app_settings["own_username"] = value
+        save_app_settings(self.app_settings)
+
     def get_game_chat_file_path(self, log_file_path):
         """Pfad zur Datei, die der MelonLoader-Mod im Spiel einliest.
 
@@ -819,7 +896,8 @@ class App(QtWidgets.QMainWindow):
             fixed_translations=self.fixed_translations,
             scenery_names=self.scenery_names,
             enable_driver_warning=lambda: self.warning_checkbox.isChecked(),
-            ui_lang=self.ui_lang  # NEU
+            ui_lang=self.ui_lang,  # NEU
+            own_username=lambda: self.own_username  # NEU
         )
         handler.setParent(self)
         handler.lines_translated.connect(lambda lines: self.process_lines(handler, text_area, lines))
