@@ -24,11 +24,44 @@ namespace TD2ChatTranslationDisplay
         // Log-Dateinamen als eindeutigen Sitzungs-Schlüssel für unsere eigene Eingabedatei -
         // dadurch bekommt jede Instanz automatisch ihren eigenen, isolierten Kanal.
 
-        private static readonly string LogsDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Documents", "TTSK", "TrainDriver2", "Logs");
+        private static readonly string LogsDirectory = ResolveLogsDirectory();
 
-        private string _inputPath; // erst bekannt, sobald die eigene Session-Log-Datei gefunden wurde
+        private static string ResolveLogsDirectory()
+        {
+            var candidates = new System.Collections.Generic.List<string>();
+
+            string documentsKnownFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (!string.IsNullOrEmpty(documentsKnownFolder))
+                candidates.Add(Path.Combine(documentsKnownFolder, "TTSK", "TrainDriver2", "Logs"));
+
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string oneDrive = Environment.GetEnvironmentVariable("OneDrive")
+                               ?? Environment.GetEnvironmentVariable("OneDriveConsumer");
+
+            if (!string.IsNullOrEmpty(oneDrive))
+            {
+                candidates.Add(Path.Combine(oneDrive, "Documents", "TTSK", "TrainDriver2", "Logs"));
+                candidates.Add(Path.Combine(oneDrive, "Dokumente", "TTSK", "TrainDriver2", "Logs"));
+            }
+
+            if (!string.IsNullOrEmpty(userProfile))
+            {
+                candidates.Add(Path.Combine(userProfile, "Documents", "TTSK", "TrainDriver2", "Logs"));
+                candidates.Add(Path.Combine(userProfile, "Dokumente", "TTSK", "TrainDriver2", "Logs"));
+                candidates.Add(Path.Combine(userProfile, "OneDrive", "Documents", "TTSK", "TrainDriver2", "Logs"));
+                candidates.Add(Path.Combine(userProfile, "OneDrive", "Dokumente", "TTSK", "TrainDriver2", "Logs"));
+            }
+
+            foreach (var candidate in candidates)
+            {
+                if (Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            return candidates.Count > 0 ? candidates[0] : "";
+        }
+
+        private string _inputPath;
         private DateTime _processStartTimeUtc;
         private bool _sessionResolved = false;
         private float _sessionResolveRetryTimer = 0f;

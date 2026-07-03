@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("chat-injector")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e7498d450c1c1fa385d8f1062e4d1d59ddc623a5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cb3741d0f5dd0214f715511e11ce221c3380d374")]
 [assembly: System.Reflection.AssemblyProductAttribute("chat-injector")]
 [assembly: System.Reflection.AssemblyTitleAttribute("chat-injector")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
