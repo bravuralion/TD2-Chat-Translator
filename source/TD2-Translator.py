@@ -28,6 +28,14 @@ current_version = "0.4.2"
 
 APP_SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".td2_app_settings.json")
 
+DEFAULT_CHAT_COLORS = {
+    "fahrdienstleiter": "#DF7676",
+    "translated": "#FFA500",
+    "swdr": "#008000",
+    "warning": "#FF0000",
+    "default": "#FFFFFF",
+}
+
 I18N = {
     "language_names": {"de": "Deutsch", "en": "English", "pl": "Polski"},
     "select_ui_language_title": {"de": "Sprache wählen", "en": "Choose language", "pl": "Wybierz język"},
@@ -45,6 +53,12 @@ I18N = {
     "close_tab": {"de": "Tab schließen", "en": "Close Selected Tab", "pl": "Zamknij wybraną kartę"},
     "toggle_overlay": {"de": "Overlay umschalten", "en": "Toggle Overlay", "pl": "Przełącz overlay"},
     "driver_warnings": {"de": "Fahrerwarnungen", "en": "Driver Warnings", "pl": "Ostrzeżenia dla kierowców"},
+    "chat_colors_label": {"de": "Farben:", "en": "Colors:", "pl": "Kolory:"},
+    "color_fahrdienstleiter": {"de": "Fahrdienstleiter", "en": "Dispatcher", "pl": "Dyżurny ruchu"},
+    "color_translated": {"de": "Spieler-Chat", "en": "Player Chat", "pl": "Czat gracza"},
+    "color_swdr": {"de": "SWDR/System", "en": "SWDR/System", "pl": "SWDR/System"},
+    "color_warning": {"de": "Warnungen", "en": "Warnings", "pl": "Ostrzeżenia"},
+    "choose_color_title": {"de": "Farbe wählen", "en": "Choose Color", "pl": "Wybierz kolor"},
     "font_plus": {"de": "A+", "en": "A+", "pl": "A+"},
     "font_minus": {"de": "A−", "en": "A−", "pl": "A−"},
     "select_log_dir": {
@@ -627,7 +641,7 @@ class App(QtWidgets.QMainWindow):
 
         self.setWindowTitle(self._t("window_title", ver=current_version))
         self.overlay_window = None
-        self.overlay_font_size = 10
+        self.overlay_font_size = self.app_settings.get("overlay_font_size", 10)
 
         icon_path = resource_path(os.path.join('res', 'Favicon.ico'))
         if os.path.exists(icon_path):
@@ -654,6 +668,10 @@ class App(QtWidgets.QMainWindow):
         self.game_install_dir = self.app_settings.get("game_install_dir", "")
 
         self.own_username = self.app_settings.get("own_username", "")
+
+        saved_colors = self.app_settings.get("chat_colors", {})
+        self.chat_colors = dict(DEFAULT_CHAT_COLORS)
+        self.chat_colors.update(saved_colors)
         self.known_logs = {}
         self.tab_widget = None
         self.init_ui()
@@ -790,6 +808,28 @@ class App(QtWidgets.QMainWindow):
 
         main_layout.addLayout(frame3)
 
+        frame_colors = QtWidgets.QHBoxLayout()
+        frame_colors.addWidget(QtWidgets.QLabel(self._t("chat_colors_label")))
+
+        self.color_buttons = {}
+        color_keys_and_labels = [
+            ("fahrdienstleiter", "color_fahrdienstleiter"),
+            ("translated", "color_translated"),
+            ("swdr", "color_swdr"),
+            ("warning", "color_warning"),
+        ]
+        for color_key, label_key in color_keys_and_labels:
+            frame_colors.addWidget(QtWidgets.QLabel(self._t(label_key)))
+            btn = QtWidgets.QPushButton()
+            btn.setFixedSize(28, 20)
+            btn.setStyleSheet(f"background-color: {self.chat_colors[color_key]}; border: 1px solid #888;")
+            btn.clicked.connect(lambda checked, k=color_key: self.pick_chat_color(k))
+            self.color_buttons[color_key] = btn
+            frame_colors.addWidget(btn)
+
+        frame_colors.addStretch()
+        main_layout.addLayout(frame_colors)
+
 
         self.tab_widget = QtWidgets.QTabWidget()
         self.tab_widget.setTabsClosable(False)
@@ -854,6 +894,17 @@ class App(QtWidgets.QMainWindow):
         value = self.own_username_entry.text().strip()
         self.own_username = value
         self.app_settings["own_username"] = value
+        save_app_settings(self.app_settings)
+
+    def pick_chat_color(self, color_key):
+        current = QtGui.QColor(self.chat_colors.get(color_key, "#FFFFFF"))
+        chosen = QtWidgets.QColorDialog.getColor(current, self, self._t("choose_color_title"))
+        if not chosen.isValid():
+            return
+        hex_color = chosen.name()
+        self.chat_colors[color_key] = hex_color
+        self.color_buttons[color_key].setStyleSheet(f"background-color: {hex_color}; border: 1px solid #888;")
+        self.app_settings["chat_colors"] = self.chat_colors
         save_app_settings(self.app_settings)
 
     def get_game_chat_file_path(self, log_file_path):
@@ -1132,10 +1183,11 @@ class App(QtWidgets.QMainWindow):
         }
 
     def change_overlay_font_size(self, delta):
-        if not self.overlay_window or not self.overlay_window.isVisible():
-            return
         self.overlay_font_size = max(6, self.overlay_font_size + delta)
-        self.overlay_window.change_font_size(delta)
+        self.app_settings["overlay_font_size"] = self.overlay_font_size
+        save_app_settings(self.app_settings)
+        if self.overlay_window and self.overlay_window.isVisible():
+            self.overlay_window.change_font_size(delta)
 
     def display_translations(self, handler, text_area, translated_lines):
         max_lines = 50
@@ -1145,20 +1197,10 @@ class App(QtWidgets.QMainWindow):
 
         for line, line_type, skip_game_chat in translated_lines:
             fmt = QtGui.QTextCharFormat()
-            if line_type == "fahrdienstleiter":
-                fmt.setForeground(QtGui.QColor("#DF7676"))
+            color_key = line_type if line_type in self.chat_colors else "default"
+            fmt.setForeground(QtGui.QColor(self.chat_colors[color_key]))
+            if line_type != "default" and line_type in ("fahrdienstleiter", "translated", "swdr", "warning"):
                 fmt.setFontWeight(QtGui.QFont.Weight.Bold)
-            elif line_type == "translated":
-                fmt.setForeground(QtGui.QColor("orange"))
-                fmt.setFontWeight(QtGui.QFont.Weight.Bold)
-            elif line_type == "swdr":
-                fmt.setForeground(QtGui.QColor("green"))
-                fmt.setFontWeight(QtGui.QFont.Weight.Bold)
-            elif line_type == "warning":
-                fmt.setForeground(QtGui.QColor("red"))
-                fmt.setFontWeight(QtGui.QFont.Weight.Bold)
-            else:
-                fmt.setForeground(QtGui.QColor("white"))
 
             cursor.insertText(line + "\n", fmt)
             text_area.setTextCursor(cursor)
