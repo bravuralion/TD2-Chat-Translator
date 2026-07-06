@@ -25,7 +25,7 @@ import py3langid as langid
 langid.set_languages(['de', 'en', 'pl'])
 _LANGID_TO_DEEPL_SOURCE = {"de": "DE", "en": "EN", "pl": "PL"}
 
-current_version = "0.4.2"
+current_version = "0.5.0"
 
 
 APP_SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".td2_app_settings.json")

@@ -17,12 +17,16 @@ I followed up on this idea and it worked. I am currently in the process of writi
 Operation is very simple: start the simulator, start the translator, and just specify where the TD2 logs are to be stored as well as the target language to which the translation is to be made. The program then runs in the background and the translated text appears in a dedicated window:
 
 <p align="center">
-  <img src="https://img.ttsk.ngo/images/2024/07/31/preview.png" alt="Preview">
+  <img src="https://img.ttsk.ngo/images/2026/07/06/2026-07-06-11_25_36-TrainDriver2.png" alt="PIS Logo">
 </p>
 
-The program currently automatically filters out system messages and emote messages such as ++ o/ etc. so that only the actual chat is translated. Nice side effect: It is also possible to display the original chat and the complete **chat in the app can be selected and copied to be able to paste it elsewhere!**
+The program currently automatically filters out system messages and emote messages such as ++ o/ etc. so that only the actual chat is translated.  **chat in the app can be selected and copied to be able to paste it elsewhere!**
 
-The translation is currently implemented using **ChatGPT4o**, the latest language model from **OpenAI**. As a result, the quality of the translation is much better than with Google Translate etc. However, the translated text is still far from perfect. This is partly due to the AI and, of course, the way the players write, but it can still help players to understand the chat better. In addition, the user can change the engine and use either **Deepl** or **Google Translate**.
+You can choose between two translation engines at any time in the app: **DeepL** (the default, generally the best translation quality) and **Google Translate** (a free alternative). The translated text is still far from perfect - that's partly down to the engines themselves and, of course, the way people write in chat - but it helps players understand each other a lot better than no translation at all.
+
+**Update:** ChatGPT/OpenAI support has been removed. To keep things secure, DeepL translations no longer go directly from your PC to DeepL - instead they're routed through a small backend. Nothing changes in how you use the app.
+
+The translator now also automatically recognizes station/scenery names (e.g. *Chełmik Wołowski*, *Cibórz Las*) and common short dispatcher phrases (*Przyjąłem*, *Tak*, *Nie*, *szlak zajęty*, ...) and keeps them correct instead of letting machine translation mangle them.
 
 <p align="center">
   <b>The following languages are currently supported:</b><br>
