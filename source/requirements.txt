@@ -1,0 +1,12 @@
+PyQt6
+requests
+Pillow
+httpcore==1.0.9
+httpx[http2]==0.28.1
+pynput
+packaging
+py3langid
+
+# googletrans==4.0.0-rc1 bewusst NICHT hier drin: siehe BUILD.md, muss
+# separat mit --no-deps installiert werden (sonst zieht pip dessen alte,
+# mit Python 3.13 inkompatible httpx/httpcore-Version rein).

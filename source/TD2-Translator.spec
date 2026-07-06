@@ -1,12 +1,25 @@
 # -*- mode: python ; coding: utf-8 -*-
+#
+# VERALTET: Der Build laeuft seit Juli 2026 ueber Nuitka statt PyInstaller
+# (siehe BUILD.md). Diese Datei bleibt nur als Referenz stehen und wird
+# nicht mehr gepflegt/benutzt.
 
+from PyInstaller.utils.hooks import collect_data_files
+
+# py3langid laedt sein trainiertes Sprachmodell zur Laufzeit aus einer
+# eigenen Datei (py3langid/data/model.plzma) relativ zu seinem eigenen
+# __file__ - das ist KEIN Python-Code und wird von PyInstaller deshalb nicht
+# automatisch mitgebuendelt. collect_data_files() findet diese Datei im
+# lokalen site-packages und packt sie mit dem richtigen relativen Pfad ins
+# Bundle, damit py3langid sie im gebauten .exe wiederfindet.
+py3langid_datas = collect_data_files('py3langid')
 
 a = Analysis(
     ['TD2-Translator.py'],
     pathex=[],
     binaries=[],
-    datas=[('res/*.png', 'res/'), ('res/*.ico', 'res/'), ('res/*.wav', 'res/'), ('res/*.csv', 'res/'), ('config.cfg', '.')],
-    hiddenimports=[],
+    datas=[('res/*.png', 'res/'), ('res/*.ico', 'res/'), ('res/*.wav', 'res/'), ('res/*.csv', 'res/')] + py3langid_datas,
+    hiddenimports=['py3langid'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
