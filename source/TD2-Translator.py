@@ -5,10 +5,7 @@ import sys
 import re
 from xml.sax import handler
 from PyQt6 import QtWidgets, QtGui, QtCore
-from openai import OpenAI
-import deepl
 import requests
-import configparser
 from queue import Queue
 from threading import Thread, Event
 from PIL import Image, ImageQt
@@ -22,6 +19,11 @@ from packaging import version
 from concurrent.futures import ThreadPoolExecutor, thread
 import json
 from PyQt6.QtMultimedia import QSoundEffect
+import py3langid as langid
+
+
+langid.set_languages(['de', 'en', 'pl'])
+_LANGID_TO_DEEPL_SOURCE = {"de": "DE", "en": "EN", "pl": "PL"}
 
 current_version = "0.4.2"
 
@@ -185,10 +187,9 @@ def find_td2_logs_dir():
             return candidate
     return candidates[0]
 
-config = configparser.ConfigParser()
-config.read(resource_path('config.cfg'))
-client = OpenAI(api_key=config['DEFAULT']['OPENAI_API_KEY'])
-deepl_api_key = config['DEFAULT']['deepl_api_key']
+API_BASE_URL = "https://translate.bravuralion.com/api/translate.php"
+APP_TOKEN = "1d5F5dogIBdk3i38fNBsdf39LgiJDBjdf23476234Njdn"
+ENABLE_GAME_CHAT_INTEGRATION = False
 
 class TranslationWorker(QtCore.QObject):
     finished = QtCore.pyqtSignal(list)
@@ -222,15 +223,11 @@ def load_fixed_translations(filepath):
             fixed_translations[text0][language] = translation
     return fixed_translations
 
-def load_scenery_names(filepath):
-    with open(filepath, 'r', encoding='utf-8') as file:
-        return {line.strip() for line in file if line.strip()}
-
 class LogHandler(QtCore.QObject):
     lines_translated = QtCore.pyqtSignal(list)
     play_warning_sound = QtCore.pyqtSignal()
 
-    def __init__(self, log_file_path, language_var, service_var, ignore_list, fixed_translations, scenery_names, enable_driver_warning, ui_lang, own_username):
+    def __init__(self, log_file_path, language_var, service_var, ignore_list, fixed_translations, enable_driver_warning, ui_lang, own_username):
         super().__init__()
         self.log_file_path = log_file_path
         self.file = open(log_file_path, 'r', encoding='utf-8')
@@ -238,12 +235,9 @@ class LogHandler(QtCore.QObject):
         self.service_var = service_var
         self.ignore_list = ignore_list
         self.fixed_translations = fixed_translations
-        self.scenery_names = scenery_names
         self.translator = Translator()
-        self.deepl_translator = deepl.Translator(deepl_api_key)
         self.last_position = self.file.tell()
         self.stop_event = Event()
-        self.openai_client = OpenAI(api_key=config['DEFAULT']['OPENAI_API_KEY'])
         self.warning_sound = QSoundEffect()
         self.warning_sound.setSource(QtCore.QUrl.fromLocalFile(resource_path("res/timer_alarm.wav")))
         self.warning_sound.setLoopCount(1)
@@ -304,151 +298,144 @@ class LogHandler(QtCore.QObject):
 
     def translate_lines(self, lines):
         translated_lines = []
-        max_workers = 1 if (self.service_var() if callable(self.service_var) else self.service_var) == "Google Translate" else 4
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_line = {}
-            future_to_original_message = {}
-            for line in lines:
-                match_fd = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) ([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż].*?@[^: ]+)(: | )(.*)$', line)
-                match_player = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (\d+@[^: ]+)(: | )(.*)$', line)
-                match_swdr = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) \[(.*? \((.*?)\))\] (.*)$', line)
-                if match_fd:
-                    timestamp_user, message = match_fd.group(1) + "(" + match_fd.group(2) + ") " + match_fd.group(3), match_fd.group(5).strip()
-                    tag = "fahrdienstleiter"
-                elif match_player:
-                    timestamp_user, message = match_player.group(1) + "(" + match_player.group(2) + ") " + match_player.group(3), match_player.group(5).strip()
-                    tag = "translated"
-                elif match_swdr:
-                    timestamp_user, message = match_swdr.group(1) + "(" + match_swdr.group(2) + ") [" + match_swdr.group(3) + "]", match_swdr.group(5).strip()
-                    tag = "swdr"
-                else:
+        items = []
+
+        current_target_language = self.language_var() if callable(self.language_var) else self.language_var
+        translation_service = self.service_var() if callable(self.service_var) else self.service_var
+        self.target_language = current_target_language
+
+        for line in lines:
+            match_fd = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) ([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż].*?@[^: ]+)(: | )(.*)$', line)
+            match_player = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) (\d+@[^: ]+)(: | )(.*)$', line)
+            match_swdr = re.search(r'^(.*?)\((\d{2}:\d{2}:\d{2})\) \[(.*? \((.*?)\))\] (.*)$', line)
+            if match_fd:
+                timestamp_user, message = match_fd.group(1) + "(" + match_fd.group(2) + ") " + match_fd.group(3), match_fd.group(5).strip()
+                tag = "fahrdienstleiter"
+            elif match_player:
+                timestamp_user, message = match_player.group(1) + "(" + match_player.group(2) + ") " + match_player.group(3), match_player.group(5).strip()
+                tag = "translated"
+            elif match_swdr:
+                timestamp_user, message = match_swdr.group(1) + "(" + match_swdr.group(2) + ") [" + match_swdr.group(3) + "]", match_swdr.group(5).strip()
+                tag = "swdr"
+            else:
+                continue
+            if message in self.ignore_list:
+                continue
+
+
+            own_username_value = self.own_username() if callable(self.own_username) else self.own_username
+            if own_username_value:
+                own_username_normalized = own_username_value.strip().casefold()
+                sender_candidates = self.extract_sender_candidates(timestamp_user)
+                if any(c.strip().casefold() == own_username_normalized for c in sender_candidates):
                     continue
-                if message in self.ignore_list:
-                    continue
+
+            driver_name = None
+            dist_val = None
+            username_match = re.search(r'@([^\s:]+)', timestamp_user)
+            if username_match:
+                driver_name = username_match.group(1)
+                if not hasattr(self, "_driver_cache"):
+                    self._driver_cache = {}
+                if driver_name not in self._driver_cache:
+                    self._driver_cache[driver_name] = self.get_driver_distance(driver_name)
+                dist_val = self._driver_cache.get(driver_name)
 
 
-                own_username_value = self.own_username() if callable(self.own_username) else self.own_username
-                if own_username_value:
-                    own_username_normalized = own_username_value.strip().casefold()
-                    sender_candidates = self.extract_sender_candidates(timestamp_user)
-                    if any(c.strip().casefold() == own_username_normalized for c in sender_candidates):
-                        continue
+            if driver_name and self.enable_driver_warning():
+                if (dist_val is None or (isinstance(dist_val, (int, float)) and dist_val < 100)) and driver_name not in self.warned_drivers:
+                    warning = I18N["warning_driver_lt_100"].get(self.ui_lang, I18N["warning_driver_lt_100"]["en"]).format(name=driver_name)
+                    translated_lines.append((warning, "warning", True))
+                    self.play_warning_sound.emit()
+                    self.warned_drivers.add(driver_name)
 
-                driver_name = None
-                dist_val = None
-                username_match = re.search(r'@([^\s:]+)', timestamp_user)
-                if username_match:
-                    driver_name = username_match.group(1)
-                    if not hasattr(self, "_driver_cache"):
-                        self._driver_cache = {}
-                    if driver_name not in self._driver_cache:
-                        self._driver_cache[driver_name] = self.get_driver_distance(driver_name)
-                    dist_val = self._driver_cache.get(driver_name)
+            text_lower = message.lower()
+            fixed = None
+            if (
+                text_lower in self.fixed_translations
+                and current_target_language in self.fixed_translations[text_lower]
+            ):
+                fixed = self.fixed_translations[text_lower][current_target_language]
 
+            items.append({
+                "timestamp_user": timestamp_user,
+                "tag": tag,
+                "message": message,
+                "fixed": fixed,
+            })
 
-                if driver_name and self.enable_driver_warning():
-                    if (dist_val is None or (isinstance(dist_val, (int, float)) and dist_val < 100)) and driver_name not in self.warned_drivers:
-                        warning = I18N["warning_driver_lt_100"].get(self.ui_lang, I18N["warning_driver_lt_100"]["en"]).format(name=driver_name)
-                        translated_lines.append((warning, "warning", True))
-                        self.play_warning_sound.emit()
-                        self.warned_drivers.add(driver_name)
+        pending = [it for it in items if it["fixed"] is None]
 
-                current_target_language = self.language_var() if callable(self.language_var) else self.language_var
-                translation_service = self.service_var() if callable(self.service_var) else self.service_var
-                self.target_language = current_target_language
+        if pending:
+            if translation_service == "Deepl":
+                target_lang_code = self.get_deepl_language_code(current_target_language)
 
-                future = executor.submit(self.translate_message, message, translation_service)
-                future_to_line[future] = (timestamp_user, tag)
-                future_to_original_message[future] = message
-            for future in future_to_line:
-                timestamp_user, tag = future_to_line[future]
-                translation = future.result()
-                translation = re.sub(r'【[^】]*】', '', translation).strip()
+                groups = {}
+                for it in pending:
+                    it["source_lang"] = self._detect_source_lang(it["message"])
+                    groups.setdefault(it["source_lang"], []).append(it)
 
+                for source_lang, group_items in groups.items():
+                    results = self._translate_deepl_batch(
+                        [it["message"] for it in group_items], target_lang_code, source_lang
+                    )
+                    for it, result in zip(group_items, results):
+                        it["translated"] = result
+            else:
+                # Google Translate: seriell (max_workers=1), da die inoffizielle
+                # Bibliothek bei paralleler Nutzung leicht ins Rate-Limiting läuft.
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future_map = {
+                        executor.submit(self.translate_with_google, it["message"]): it
+                        for it in pending
+                    }
+                    for future in future_map:
+                        future_map[future]["translated"] = future.result()
 
-                original_message = future_to_original_message.get(future, "")
-                is_unchanged = translation.strip().casefold() == original_message.strip().casefold()
+        for it in items:
+            translation = it["fixed"] if it["fixed"] is not None else it.get("translated", it["message"])
+            translation = re.sub(r'【[^】]*】', '', translation).strip()
+            is_unchanged = translation.strip().casefold() == it["message"].strip().casefold()
+            translated_lines.append((f"{it['timestamp_user']}: {translation}", it["tag"], is_unchanged))
 
-                translated_lines.append((f"{timestamp_user}: {translation}", tag, is_unchanged))
         return translated_lines
 
-    def translate_message(self, text, translation_service):
-        current_target_language = self.target_language
-        text_lower = text.lower()
-
-        if (
-            text_lower in self.fixed_translations
-            and current_target_language in self.fixed_translations[text_lower]
-        ):
-            return self.fixed_translations[text_lower][current_target_language]
-
-        masked_text, mask_map = self._mask_scenery_names(text)
-
-        if translation_service == "ChatGPT":
-            translated = self.translate_with_chatgpt(masked_text)
-        elif translation_service == "Google Translate":
-            translated = self.translate_with_google(masked_text)
-        elif translation_service == "Deepl":
-            translated = self.translate_with_deepl(masked_text)
-        else:
-            translated = masked_text
-
-        return self._unmask_scenery_names(translated, mask_map)
-
-    def _mask_scenery_names(self, text):
-        mask_map = {}
-        masked_text = text
-        for name in sorted(self.scenery_names, key=len, reverse=True):
-            pattern = r'\b' + re.escape(name) + r'\b'
-            mask = f"__SCENERY_{hash(name)}__"
-
-
-            if re.search(pattern, masked_text, re.IGNORECASE):
-                masked_text = re.sub(pattern, mask, masked_text, flags=re.IGNORECASE)
-                mask_map[mask] = name
-        return masked_text, mask_map
-
-    def _unmask_scenery_names(self, text, mask_map):
-        for mask, name in mask_map.items():
-            text = text.replace(mask, name)
-        return text
-
-    def translate_with_chatgpt(self, text):
+    @staticmethod
+    def _detect_source_lang(text):
         try:
-            thread = self.openai_client.beta.threads.create()
-            self.openai_client.beta.threads.messages.create(
-                thread_id=thread.id,
-                role="user",
-                content=(
-                    f"Translate the following Sentence to {self.target_language}. "
-                    f"Only provide the translation without any explanations or additional text. "
-                    f"If there are parts that cannot be translated (e.g., names, emojis), leave those unchanged: {text}"
+            lang_code, _confidence = langid.classify(text)
+        except Exception:
+            return "EN"
+        return _LANGID_TO_DEEPL_SOURCE.get(lang_code, "EN")
+
+    def _translate_deepl_batch(self, texts, target_lang_code, source_lang_code):
+        if not target_lang_code:
+            return [f"Target language '{self.target_language}' not supported by Deepl" for _ in texts]
+
+        results = []
+        chunk_size = 25  # bleibt unter dem serverseitigen max_batch_size
+        for i in range(0, len(texts), chunk_size):
+            chunk = texts[i:i + chunk_size]
+            try:
+                resp = requests.post(
+                    API_BASE_URL,
+                    json={
+                        "target_lang": target_lang_code,
+                        "source_lang": source_lang_code,
+                        "texts": chunk,
+                    },
+                    headers={"X-App-Token": APP_TOKEN, "Content-Type": "application/json"},
+                    timeout=15,
                 )
-            )
-
-            run = self.openai_client.beta.threads.runs.create_and_poll(
-                thread_id=thread.id,
-                assistant_id="asst_dxWUY2bN5TSwZXi09Q7HKITj",
-                instructions=(
-                    "You are a translator. Translate the text to the requested language only. "
-                    "Do not explain anything. Keep names and symbols unchanged."
-                )
-            )
-
-            if run.status == 'completed':
-                messages = self.openai_client.beta.threads.messages.list(thread_id=thread.id)
-                message_data = messages.data
-                if message_data:
-                    for message in reversed(message_data):
-                        if message.role == "assistant" and message.content:
-                            return message.content[0].text.value.strip()
-                    return "No assistant message found"
-                return "No messages found"
-            else:
-                return f"Run not completed. Status: {run.status}"
-
-        except Exception as e:
-            return f"[ChatGPT Error] {str(e)}"
+                resp.raise_for_status()
+                data = resp.json()
+                translations = data.get("translations", [])
+                if len(translations) != len(chunk):
+                    raise ValueError("Unexpected response from translation server")
+                results.extend(translations)
+            except Exception as e:
+                results.extend([f"[Translation Error] {e}"] * len(chunk))
+        return results
 
     def translate_with_google(self, text):
         try:
@@ -461,16 +448,6 @@ class LogHandler(QtCore.QObject):
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                 result = loop.run_until_complete(result)
-            return result.text
-        except Exception as e:
-            return str(e)
-
-    def translate_with_deepl(self, text):
-        target_lang_code = self.get_deepl_language_code(self.target_language)
-        if not target_lang_code:
-            return f"Target language '{self.target_language}' not supported by Deepl"
-        try:
-            result = self.deepl_translator.translate_text(text, target_lang=target_lang_code)
             return result.text
         except Exception as e:
             return str(e)
@@ -649,7 +626,6 @@ class App(QtWidgets.QMainWindow):
 
         self.ignore_list = load_ignore_list(resource_path(os.path.join('res', 'ignore_list.csv')))
         self.fixed_translations = load_fixed_translations(resource_path(os.path.join('res', 'fixed_translations.csv')))
-        self.scenery_names = load_scenery_names(resource_path(os.path.join('res', 'Scenery_Names.csv')))
 
         self.language_var = "English"
         self.service_var = "Deepl"
@@ -741,17 +717,18 @@ class App(QtWidgets.QMainWindow):
         form_layout.addRow(file_label, file_row)
 
 
-        game_dir_label = QtWidgets.QLabel(self._t("game_install_dir"))
-        game_dir_label.setToolTip(self._t("game_install_dir_tooltip"))
-        self.game_dir_entry = QtWidgets.QLineEdit()
-        self.game_dir_entry.setText(self.game_install_dir)
-        self.game_dir_entry.setToolTip(self._t("game_install_dir_tooltip"))
-        game_dir_browse_btn = QtWidgets.QPushButton(self._t("browse"))
-        game_dir_browse_btn.clicked.connect(self.browse_game_directory)
-        game_dir_row = QtWidgets.QHBoxLayout()
-        game_dir_row.addWidget(self.game_dir_entry)
-        game_dir_row.addWidget(game_dir_browse_btn)
-        form_layout.addRow(game_dir_label, game_dir_row)
+        if ENABLE_GAME_CHAT_INTEGRATION:
+            game_dir_label = QtWidgets.QLabel(self._t("game_install_dir"))
+            game_dir_label.setToolTip(self._t("game_install_dir_tooltip"))
+            self.game_dir_entry = QtWidgets.QLineEdit()
+            self.game_dir_entry.setText(self.game_install_dir)
+            self.game_dir_entry.setToolTip(self._t("game_install_dir_tooltip"))
+            game_dir_browse_btn = QtWidgets.QPushButton(self._t("browse"))
+            game_dir_browse_btn.clicked.connect(self.browse_game_directory)
+            game_dir_row = QtWidgets.QHBoxLayout()
+            game_dir_row.addWidget(self.game_dir_entry)
+            game_dir_row.addWidget(game_dir_browse_btn)
+            form_layout.addRow(game_dir_label, game_dir_row)
 
 
         own_username_label = QtWidgets.QLabel(self._t("own_username"))
@@ -780,7 +757,7 @@ class App(QtWidgets.QMainWindow):
         frame2.addWidget(self.language_combobox)
 
         frame2.addWidget(QtWidgets.QLabel(self._t("service")))
-        service_values = ["ChatGPT", "Google Translate", "Deepl"]
+        service_values = ["Google Translate", "Deepl"]
         self.service_combobox = QtWidgets.QComboBox()
         self.service_combobox.addItems(service_values)
         self.service_combobox.setCurrentText(self.service_var)
@@ -908,6 +885,8 @@ class App(QtWidgets.QMainWindow):
         save_app_settings(self.app_settings)
 
     def get_game_chat_file_path(self, log_file_path):
+        if not ENABLE_GAME_CHAT_INTEGRATION:
+            return None
         if not self.game_install_dir or not os.path.isdir(self.game_install_dir):
             return None
         user_data_dir = os.path.join(self.game_install_dir, "MelonLoader", "UserData")
@@ -971,7 +950,6 @@ class App(QtWidgets.QMainWindow):
             service_var=lambda: self.service_var,
             ignore_list=self.ignore_list,
             fixed_translations=self.fixed_translations,
-            scenery_names=self.scenery_names,
             enable_driver_warning=lambda: self.warning_checkbox.isChecked(),
             ui_lang=self.ui_lang,
             own_username=lambda: self.own_username
