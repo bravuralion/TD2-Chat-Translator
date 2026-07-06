@@ -5,3 +5,6 @@ source/local_config.py
 source/dist/TD2-Translator.exe
 source/dist/TD2-Translator.zip
 /source/build
+source/nuitka-crash-report.xml
+/source/public
+source/BUILD.md

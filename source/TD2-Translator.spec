@@ -1,4 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
+#
+# VERALTET: Der Build laeuft seit Juli 2026 ueber Nuitka statt PyInstaller
+# (siehe BUILD.md). Diese Datei bleibt nur als Referenz stehen und wird
+# nicht mehr gepflegt/benutzt.
 
 from PyInstaller.utils.hooks import collect_data_files
 

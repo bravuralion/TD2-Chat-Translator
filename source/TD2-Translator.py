@@ -1,3 +1,13 @@
+# nuitka-project: --onefile
+# nuitka-project: --windows-console-mode=disable
+# nuitka-project: --enable-plugin=pyqt6
+# nuitka-project: --include-package-data=py3langid
+# nuitka-project: --include-data-dir=res=res
+# nuitka-project: --windows-icon-from-ico=res/Favicon.ico
+# nuitka-project: --output-filename=TD2-Translator.exe
+# nuitka-project: --output-dir=dist
+# nuitka-project: --include-windows-runtime-dlls=yes
+
 from email.mime import text
 from math import dist
 import os
@@ -165,7 +175,24 @@ def save_app_settings(data: dict):
         pass
 
 def resource_path(relative_path):
-    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    try:
+        # Nuitka (standalone/onefile): __compiled__ ist ein von Nuitka
+        # injiziertes Modul-Global, existiert nur im kompilierten Build.
+        if __compiled__.onefile:  # noqa: F821
+            # Bei --onefile zeigt __compiled__.containing_dir auf den Ordner
+            # der .exe-Datei selbst (z.B. dist\), NICHT auf das Temp-
+            # Verzeichnis, in das Nuitka zur Laufzeit entpackt - und genau
+            # dorthin gehoeren die per --include-data-dir mitgelieferten
+            # Ressourcen (res\...). __file__ zeigt dagegen korrekt auf die
+            # entpackte Kopie dieses Moduls im Temp-Verzeichnis.
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        else:
+            # Standalone (nicht onefile): hier liegen die Ressourcen
+            # tatsaechlich direkt neben der .exe, containing_dir stimmt.
+            base_path = __compiled__.containing_dir  # noqa: F821
+    except NameError:
+        # PyInstaller-Fallback (frueherer Build-Weg) bzw. normaler Skriptlauf.
+        base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
 def find_td2_logs_dir():
