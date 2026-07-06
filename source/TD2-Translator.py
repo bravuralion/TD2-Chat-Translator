@@ -187,8 +187,15 @@ def find_td2_logs_dir():
             return candidate
     return candidates[0]
 
-API_BASE_URL = "https://translate.bravuralion.com/api/translate.php"
-APP_TOKEN = "1d5F5dogIBdk3i38fNBsdf39LgiJDBjdf23476234Njdn"
+try:
+    from local_config import API_BASE_URL, APP_TOKEN
+except ImportError as exc:
+    raise ImportError(
+        "local_config.py fehlt. Bitte local_config.sample.py im selben "
+        "Ordner zu local_config.py kopieren und mit den echten Werten "
+        "ausfuellen, bevor du das Programm startest oder baust."
+    ) from exc
+
 ENABLE_GAME_CHAT_INTEGRATION = False
 
 class TranslationWorker(QtCore.QObject):

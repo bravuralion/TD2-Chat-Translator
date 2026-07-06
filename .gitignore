@@ -1,5 +1,6 @@
 
 source/config.cfg
+source/local_config.py
 /source/dist
 source/dist/TD2-Translator.exe
 source/dist/TD2-Translator.zip
