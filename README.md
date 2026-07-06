@@ -17,7 +17,7 @@ I followed up on this idea and it worked. I am currently in the process of writi
 Operation is very simple: start the simulator, start the translator, and just specify where the TD2 logs are to be stored as well as the target language to which the translation is to be made. The program then runs in the background and the translated text appears in a dedicated window:
 
 <p align="center">
-  <img src="https://img.ttsk.ngo/images/2026/07/06/2026-07-06-11_25_36-TrainDriver2.png">
+  <img src="https://img.ttsk.ngo/images/2026/07/06/2026-07-06-11_25_36-TrainDriver2.png" alt="PIS Logo">
 </p>
 
 The program currently automatically filters out system messages and emote messages such as ++ o/ etc. so that only the actual chat is translated.  **chat in the app can be selected and copied to be able to paste it elsewhere!**
