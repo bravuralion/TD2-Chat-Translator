@@ -8,3 +8,5 @@ source/dist/TD2-Translator.zip
 source/nuitka-crash-report.xml
 /source/public
 source/BUILD.md
+source/build_both.bat
+source/build_both.py

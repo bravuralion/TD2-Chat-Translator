@@ -12,6 +12,16 @@ from email.mime import text
 from math import dist
 import os
 import sys
+try:
+    _log_path = os.path.join(os.path.expanduser("~"), ".td2_translator_crash.log")
+    _log_fd = os.open(_log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(_log_fd, 1)
+    os.dup2(_log_fd, 2)
+    sys.stdout = os.fdopen(1, "w", buffering=1)
+    sys.stderr = os.fdopen(2, "w", buffering=1)
+except OSError:
+    pass
+
 import re
 from xml.sax import handler
 from PyQt6 import QtWidgets, QtGui, QtCore
@@ -35,7 +45,7 @@ import py3langid as langid
 langid.set_languages(['de', 'en', 'pl'])
 _LANGID_TO_DEEPL_SOURCE = {"de": "DE", "en": "EN", "pl": "PL"}
 
-current_version = "0.5.0"
+current_version = "0.6.5"
 
 
 APP_SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".td2_app_settings.json")
@@ -223,7 +233,11 @@ except ImportError as exc:
         "ausfuellen, bevor du das Programm startest oder baust."
     ) from exc
 
-ENABLE_GAME_CHAT_INTEGRATION = False
+_FLAGS = {
+    "game_chat_integration": False,  # <- hier vor dem Bauen auf True setzen
+}
+
+ENABLE_GAME_CHAT_INTEGRATION = _FLAGS["game_chat_integration"]
 
 class TranslationWorker(QtCore.QObject):
     finished = QtCore.pyqtSignal(list)
